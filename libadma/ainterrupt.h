@@ -1,41 +1,38 @@
 /*
-* XDMA Interrupt Service Routines, Handlers and Dispatch Functions
+* ADMA Interrupt Service Routines, Handlers and Dispatch Functions
 * ===============================
 *
-* Copyright 2017 Xilinx Inc.
-* Copyright 2010-2012 Sidebranch
-* Copyright 2010-2012 Leon Woestenberg <leon@sidebranch.com>
+* Copyright 2018 Qinger Inc.
 *
 * Maintainer:
 * -----------
-* Alexander Hornburg <alexande@xilinx.com>
+* zhuce <qingermaker@sina.com>
 *
 */
-
 #pragma once
 
 // ========================= include dependencies =================================================
 #include <ntddk.h>
-#include "dma_engine.h"
+#include "adma_engine.h"
 
 // ========================= declarations =================================================
 
-#define XDMA_MAX_USER_IRQ (16)
-#define XDMA_MAX_NUM_IRQ (XDMA_MAX_USER_IRQ + XDMA_MAX_CHAN_IRQ)
+#define ADMA_MAX_USER_IRQ (16)
+#define ADMA_MAX_NUM_IRQ (ADMA_MAX_USER_IRQ + ADMA_MAX_CHAN_IRQ)
 
 typedef struct _IRQ_CONTEXT {
     ULONG eventId;
     UINT32 channelIrqPending; // channel irq that have fired
     UINT32 userIrqPending; // user event irq that have fired
-    XDMA_ENGINE* engine;
-    volatile XDMA_IRQ_REGS* regs;
-    PXDMA_DEVICE xdma;
+    ADMA_ENGINE* engine;
+    volatile ADMA_IRQ_REGS* regs;
+    PADMA_DEVICE adma;
 } IRQ_CONTEXT, *PIRQ_CONTEXT;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(IRQ_CONTEXT, GetIrqContext)
 
 
 /// Initialize the interrupt resources given by the OS for use by DMA engines and user events 
- NTSTATUS SetupInterrupts(IN PXDMA_DEVICE xdma,
+ NTSTATUS SetupInterrupts(IN PADMA_DEVICE adma,
                          IN WDFCMRESLIST ResourcesRaw,
                          IN WDFCMRESLIST ResourcesTranslated);
 

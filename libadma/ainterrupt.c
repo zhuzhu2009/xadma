@@ -1,5 +1,5 @@
 /*
-* XDMA Interrupt Service Routines, Handlers and Dispatch Functions
+* ADMA Interrupt Service Routines, Handlers and Dispatch Functions
 * ===============================
 *
 * Copyright 2017 Xilinx Inc.
@@ -13,16 +13,16 @@
 */
 
 // ========================= include dependencies =================================================
-#include "device.h"
-#include "dma_engine.h"
-#include "interrupt.h"
-#include "pcie_common.h"
+#include "adevice.h"
+#include "adma_engine.h"
+#include "ainterrupt.h"
+#include "apcie_common.h"
 
 #include "trace.h"
 #ifdef DBG
 // The trace message header (.tmh) file must be included in a source file before any WPP macro 
 // calls and after defining a WPP_CONTROL_GUIDS macro (defined in trace.h). see trace.h
-#include "interrupt.tmh"
+#include "ainterrupt.tmh"
 #endif
 
 
@@ -56,7 +56,7 @@ static UINT32 BuildVectorReg(UINT32 a, UINT32 b, UINT32 c, UINT32 d) {
     return reg_val;
 }
 
-static NTSTATUS SetupUserInterrupt(IN PXDMA_DEVICE xdma, IN ULONG index,
+static NTSTATUS SetupUserInterrupt(IN PADMA_DEVICE adma, IN ULONG index,
                                    IN PCM_PARTIAL_RESOURCE_DESCRIPTOR resource,
                                    IN PCM_PARTIAL_RESOURCE_DESCRIPTOR translatedResource) {
     WDF_INTERRUPT_CONFIG config;
@@ -70,20 +70,20 @@ static NTSTATUS SetupUserInterrupt(IN PXDMA_DEVICE xdma, IN ULONG index,
     WDF_OBJECT_ATTRIBUTES_INIT(&attribs);
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attribs, IRQ_CONTEXT);
 
-    NTSTATUS status = WdfInterruptCreate(xdma->wdfDevice, &config, &attribs,
-                                         &(xdma->userEvents[index].irq));
+    NTSTATUS status = WdfInterruptCreate(adma->wdfDevice, &config, &attribs,
+                                         &(adma->userEvents[index].irq));
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "WdfInterruptCreate failed: %!STATUS!", status);
     }
 
-    PIRQ_CONTEXT irqContext = GetIrqContext(xdma->userEvents[index].irq);
+    PIRQ_CONTEXT irqContext = GetIrqContext(adma->userEvents[index].irq);
     irqContext->eventId = index; // msg Id = irq index = event id
-    irqContext->regs = xdma->interruptRegs;
-    irqContext->xdma = xdma;
+    irqContext->regs = adma->interruptRegs;
+    irqContext->adma = adma;
     return status;
 }
 
-static NTSTATUS SetupChannelInterrupt(IN PXDMA_DEVICE xdma, IN ULONG index,
+static NTSTATUS SetupChannelInterrupt(IN PADMA_DEVICE adma, IN ULONG index,
                                       IN PCM_PARTIAL_RESOURCE_DESCRIPTOR resource,
                                       IN PCM_PARTIAL_RESOURCE_DESCRIPTOR translatedResource) {
     WDF_INTERRUPT_CONFIG config;
@@ -97,18 +97,18 @@ static NTSTATUS SetupChannelInterrupt(IN PXDMA_DEVICE xdma, IN ULONG index,
     WDF_OBJECT_ATTRIBUTES_INIT(&attribs);
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attribs, IRQ_CONTEXT);
 
-    NTSTATUS status = WdfInterruptCreate(xdma->wdfDevice, &config, &attribs,
-                                         &(xdma->channelInterrupts[index]));
+    NTSTATUS status = WdfInterruptCreate(adma->wdfDevice, &config, &attribs,
+                                         &(adma->channelInterrupts[index]));
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "WdfInterruptCreate failed: %!STATUS!", status);
     }
-    PIRQ_CONTEXT irqContext = GetIrqContext(xdma->channelInterrupts[index]);
-    irqContext->regs = xdma->interruptRegs;
-    irqContext->xdma = xdma;
+    PIRQ_CONTEXT irqContext = GetIrqContext(adma->channelInterrupts[index]);
+    irqContext->regs = adma->interruptRegs;
+    irqContext->adma = adma;
     return status;
 }
 
-static NTSTATUS SetupDeviceInterrupt(IN PXDMA_DEVICE xdma, IN PCM_PARTIAL_RESOURCE_DESCRIPTOR resource,
+static NTSTATUS SetupDeviceInterrupt(IN PADMA_DEVICE adma, IN PCM_PARTIAL_RESOURCE_DESCRIPTOR resource,
                                      IN PCM_PARTIAL_RESOURCE_DESCRIPTOR translatedResource) {
     WDF_INTERRUPT_CONFIG config;
     WDF_INTERRUPT_CONFIG_INIT(&config, EvtInterruptIsr, EvtInterruptDpc);
@@ -121,17 +121,17 @@ static NTSTATUS SetupDeviceInterrupt(IN PXDMA_DEVICE xdma, IN PCM_PARTIAL_RESOUR
     WDF_OBJECT_ATTRIBUTES_INIT(&attribs);
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attribs, IRQ_CONTEXT);
 
-    NTSTATUS status = WdfInterruptCreate(xdma->wdfDevice, &config, &attribs, &xdma->lineInterrupt);
+    NTSTATUS status = WdfInterruptCreate(adma->wdfDevice, &config, &attribs, &adma->lineInterrupt);
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "WdfInterruptCreate failed: %!STATUS!", status);
     }
-    PIRQ_CONTEXT irqContext = GetIrqContext(xdma->lineInterrupt);
-    irqContext->xdma = xdma;
-    irqContext->regs = xdma->interruptRegs;
+    PIRQ_CONTEXT irqContext = GetIrqContext(adma->lineInterrupt);
+    irqContext->adma = adma;
+    irqContext->regs = adma->interruptRegs;
     return status;
 }
 
-static NTSTATUS SetupSingleInterrupt(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST ResourcesRaw,
+static NTSTATUS SetupSingleInterrupt(IN PADMA_DEVICE adma, IN WDFCMRESLIST ResourcesRaw,
                                      IN WDFCMRESLIST ResourcesTranslated) {
     PCM_PARTIAL_RESOURCE_DESCRIPTOR resource;
     PCM_PARTIAL_RESOURCE_DESCRIPTOR resourceRaw;
@@ -139,7 +139,7 @@ static NTSTATUS SetupSingleInterrupt(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Resou
     ULONG numResources = WdfCmResourceListGetCount(ResourcesTranslated);
     UINT32 vectorValue = 0;
 
-    ASSERT(xdma->interruptRegs != NULL);
+    ASSERT(adma->interruptRegs != NULL);
 
     for (UINT i = 0; i < numResources; i++) {
         resource = WdfCmResourceListGetDescriptor(ResourcesTranslated, i);
@@ -149,7 +149,7 @@ static NTSTATUS SetupSingleInterrupt(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Resou
             continue;
         }
 
-        status = SetupDeviceInterrupt(xdma, resourceRaw, resource);
+        status = SetupDeviceInterrupt(adma, resourceRaw, resource);
         if (!NT_SUCCESS(status)) {
             TraceError(DBG_INIT, "Error in setup device interrupt: %!STATUS!", status);
             return status;
@@ -157,14 +157,14 @@ static NTSTATUS SetupSingleInterrupt(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Resou
 
         if (!(resource->Flags & CM_RESOURCE_INTERRUPT_MESSAGE)) { // LINE interrupt
 
-            status = GetLineInterruptPin(xdma->wdfDevice, &vectorValue); // todo is this required?
+            status = GetLineInterruptPin(adma->wdfDevice, &vectorValue); // todo is this required?
             if (!NT_SUCCESS(status)) {
                 TraceError(DBG_INIT, "GetLineInterruptPin failed! %!STATUS!", status);
                 return status;
             }
 
             // Windows: A=1, B=2, C=3, D=4
-            // XDMA:    A=0, B=1, C=2, D=3
+            // ADMA:    A=0, B=1, C=2, D=3
             vectorValue--;
         }
 
@@ -174,17 +174,17 @@ static NTSTATUS SetupSingleInterrupt(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Resou
 
     TraceVerbose(DBG_INIT, "User/Channel interrupt vector value = %u", vectorValue);
 
-    xdma->interruptRegs->userVector[0] = vectorValue;
-    xdma->interruptRegs->userVector[1] = vectorValue;
-    xdma->interruptRegs->userVector[2] = vectorValue;
-    xdma->interruptRegs->userVector[3] = vectorValue;
-    xdma->interruptRegs->channelVector[0] = vectorValue;
-    xdma->interruptRegs->channelVector[1] = vectorValue;
+    adma->interruptRegs->userVector[0] = vectorValue;
+    adma->interruptRegs->userVector[1] = vectorValue;
+    adma->interruptRegs->userVector[2] = vectorValue;
+    adma->interruptRegs->userVector[3] = vectorValue;
+    adma->interruptRegs->channelVector[0] = vectorValue;
+    adma->interruptRegs->channelVector[1] = vectorValue;
 
     return status;
 }
 
-static NTSTATUS SetupMsixInterrupts(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST ResourcesRaw,
+static NTSTATUS SetupMsixInterrupts(IN PADMA_DEVICE adma, IN WDFCMRESLIST ResourcesRaw,
                                     IN WDFCMRESLIST ResourcesTranslated) {
     PCM_PARTIAL_RESOURCE_DESCRIPTOR resource;
     PCM_PARTIAL_RESOURCE_DESCRIPTOR resourceRaw;
@@ -192,9 +192,9 @@ static NTSTATUS SetupMsixInterrupts(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Resour
     ULONG numResources = WdfCmResourceListGetCount(ResourcesTranslated);
     ULONG interruptCount = 0;
 
-    ASSERT(xdma->interruptRegs != NULL);
+    ASSERT(adma->interruptRegs != NULL);
 
-    for (UINT i = 0; (i < numResources) && (interruptCount < XDMA_MAX_NUM_IRQ); i++) {
+    for (UINT i = 0; (i < numResources) && (interruptCount < ADMA_MAX_NUM_IRQ); i++) {
 
         resource = WdfCmResourceListGetDescriptor(ResourcesTranslated, i);
         resourceRaw = WdfCmResourceListGetDescriptor(ResourcesRaw, i);
@@ -204,10 +204,10 @@ static NTSTATUS SetupMsixInterrupts(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Resour
         }
 
         // assign first 16 interrupt resources to user events
-        if (interruptCount < XDMA_MAX_USER_IRQ) {
-            status = SetupUserInterrupt(xdma, interruptCount, resourceRaw, resource);
+        if (interruptCount < ADMA_MAX_USER_IRQ) {
+            status = SetupUserInterrupt(adma, interruptCount, resourceRaw, resource);
         } else { // assign next 8 interrupt resources to dma engines
-            status = SetupChannelInterrupt(xdma, interruptCount - XDMA_MAX_USER_IRQ,
+            status = SetupChannelInterrupt(adma, interruptCount - ADMA_MAX_USER_IRQ,
                                            resourceRaw, resource);
         }
         if (!NT_SUCCESS(status)) {
@@ -219,26 +219,26 @@ static NTSTATUS SetupMsixInterrupts(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Resour
     }
 
     // first 16 msg IDs are user irq
-    xdma->interruptRegs->userVector[0] = BuildVectorReg(0, 1, 2, 3);
-    xdma->interruptRegs->userVector[1] = BuildVectorReg(4, 5, 6, 7);
-    xdma->interruptRegs->userVector[2] = BuildVectorReg(8, 9, 10, 11);
-    xdma->interruptRegs->userVector[3] = BuildVectorReg(12, 13, 14, 15);
+    adma->interruptRegs->userVector[0] = BuildVectorReg(0, 1, 2, 3);
+    adma->interruptRegs->userVector[1] = BuildVectorReg(4, 5, 6, 7);
+    adma->interruptRegs->userVector[2] = BuildVectorReg(8, 9, 10, 11);
+    adma->interruptRegs->userVector[3] = BuildVectorReg(12, 13, 14, 15);
 
     // next 8 are dma channel
-    xdma->interruptRegs->channelVector[0] = BuildVectorReg(16, 17, 18, 19);
-    xdma->interruptRegs->channelVector[1] = BuildVectorReg(20, 21, 22, 23);
+    adma->interruptRegs->channelVector[0] = BuildVectorReg(16, 17, 18, 19);
+    adma->interruptRegs->channelVector[1] = BuildVectorReg(20, 21, 22, 23);
 
     return status;
 }
 
-static NTSTATUS SetupMultiMsiInterrupts(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST ResourcesRaw,
+static NTSTATUS SetupMultiMsiInterrupts(IN PADMA_DEVICE adma, IN WDFCMRESLIST ResourcesRaw,
                                         IN WDFCMRESLIST ResourcesTranslated, IN USHORT numVectors) {
     PCM_PARTIAL_RESOURCE_DESCRIPTOR resource;
     PCM_PARTIAL_RESOURCE_DESCRIPTOR resourceRaw;
     NTSTATUS status = STATUS_INTERNAL_ERROR;
     ULONG numResources = WdfCmResourceListGetCount(ResourcesTranslated);
 
-    ASSERT(xdma->interruptRegs != NULL);
+    ASSERT(adma->interruptRegs != NULL);
 
     for (UINT i = 0; i < numResources; i++) {
         resource = WdfCmResourceListGetDescriptor(ResourcesTranslated, i);
@@ -250,8 +250,8 @@ static NTSTATUS SetupMultiMsiInterrupts(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Re
         resource->u.MessageInterrupt.Raw.MessageCount = numVectors;
         resourceRaw->u.MessageInterrupt.Raw.MessageCount = numVectors;
         // individual resource/msgId for each user interrupt (0-15)
-        for (int n = 0; n < XDMA_MAX_USER_IRQ; n++) {
-            status = SetupUserInterrupt(xdma, 0, resourceRaw, resource);
+        for (int n = 0; n < ADMA_MAX_USER_IRQ; n++) {
+            status = SetupUserInterrupt(adma, 0, resourceRaw, resource);
             if (!NT_SUCCESS(status)) {
                 TraceError(DBG_INIT, "Error in setup user interrupt: %!STATUS!", status);
                 return status;
@@ -259,8 +259,8 @@ static NTSTATUS SetupMultiMsiInterrupts(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Re
         }
 
         // individual resource/msgId for each channel interrupt (H2C 0-3 and C2H 0-3)
-        for (int n = 0; n < (2 * XDMA_MAX_NUM_CHANNELS); n++) {
-            status = SetupChannelInterrupt(xdma, n, resourceRaw, resource);
+        for (int n = 0; n < (2 * ADMA_MAX_NUM_CHANNELS); n++) {
+            status = SetupChannelInterrupt(adma, n, resourceRaw, resource);
             if (!NT_SUCCESS(status)) {
                 TraceError(DBG_INIT, "Error in setup channel interrupt: %!STATUS!", status);
                 return status;
@@ -274,14 +274,14 @@ static NTSTATUS SetupMultiMsiInterrupts(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Re
     TraceVerbose(DBG_INIT, "Channel interrupt msg ids = H2C[1,2,3,4], C2H[5,6,7,8]");
 
     // first 16 msg IDs are user irq
-    xdma->interruptRegs->userVector[0] = BuildVectorReg(0, 1, 2, 3);
-    xdma->interruptRegs->userVector[1] = BuildVectorReg(4, 5, 6, 7);
-    xdma->interruptRegs->userVector[2] = BuildVectorReg(8, 9, 10, 11);
-    xdma->interruptRegs->userVector[3] = BuildVectorReg(12, 13, 14, 15);
+    adma->interruptRegs->userVector[0] = BuildVectorReg(0, 1, 2, 3);
+    adma->interruptRegs->userVector[1] = BuildVectorReg(4, 5, 6, 7);
+    adma->interruptRegs->userVector[2] = BuildVectorReg(8, 9, 10, 11);
+    adma->interruptRegs->userVector[3] = BuildVectorReg(12, 13, 14, 15);
 
     // next 8 are dma channel
-    xdma->interruptRegs->channelVector[0] = BuildVectorReg(16, 17, 18, 19);
-    xdma->interruptRegs->channelVector[1] = BuildVectorReg(20, 21, 22, 23);
+    adma->interruptRegs->channelVector[0] = BuildVectorReg(16, 17, 18, 19);
+    adma->interruptRegs->channelVector[1] = BuildVectorReg(20, 21, 22, 23);
 
     return status;
 }
@@ -381,8 +381,8 @@ VOID EvtInterruptDpc(IN WDFINTERRUPT interrupt, IN WDFOBJECT device)
     // dma engine interrupt pending?
     TraceVerbose(DBG_IRQ, "channelIrqPending=0x%08X", irq->channelIrqPending);
     for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
-        for (UINT channel = 0; channel < XDMA_MAX_NUM_CHANNELS; channel++) {
-            XDMA_ENGINE* engine = &irq->xdma->engines[channel][dir];
+        for (UINT channel = 0; channel < ADMA_MAX_NUM_CHANNELS; channel++) {
+            ADMA_ENGINE* engine = &irq->adma->engines[channel][dir];
             if (engine->enabled && (irq->channelIrqPending & engine->irqBitMask)) {
                 TraceInfo(DBG_IRQ, "%s_%u servicing interrupt", DirectionToString(dir), channel);
                 ASSERT(engine->work != NULL);
@@ -393,8 +393,8 @@ VOID EvtInterruptDpc(IN WDFINTERRUPT interrupt, IN WDFOBJECT device)
 
     // user event interrupt pending?
     TraceVerbose(DBG_IRQ, "userIrqPending=0x%08X", irq->userIrqPending);
-    for (UINT i = 0; i < XDMA_MAX_USER_IRQ; ++i) {
-        XDMA_EVENT* userEvent = &irq->xdma->userEvents[i];
+    for (UINT i = 0; i < ADMA_MAX_USER_IRQ; ++i) {
+        ADMA_EVENT* userEvent = &irq->adma->userEvents[i];
         if (irq->userIrqPending & BIT_N(i)) {
             if (userEvent->work != NULL) {
                 userEvent->work(i, userEvent->userData);
@@ -508,7 +508,7 @@ VOID EvtUserInterruptDpc(IN WDFINTERRUPT interrupt, IN WDFOBJECT device)
     UNREFERENCED_PARAMETER(device);
     IRQ_CONTEXT* irq = GetIrqContext(interrupt);
     EXPECT(irq != NULL);
-    XDMA_EVENT* userEvent = &irq->xdma->userEvents[irq->eventId];
+    ADMA_EVENT* userEvent = &irq->adma->userEvents[irq->eventId];
     EXPECT(userEvent != NULL);
 
     // message id and event id are same
@@ -525,7 +525,7 @@ VOID EvtUserInterruptDpc(IN WDFINTERRUPT interrupt, IN WDFOBJECT device)
 
 // ====================== internal api implementation ==============================================
 
-NTSTATUS SetupInterrupts(IN PXDMA_DEVICE xdma,
+NTSTATUS SetupInterrupts(IN PADMA_DEVICE adma,
                          IN WDFCMRESLIST ResourcesRaw,
                          IN WDFCMRESLIST ResourcesTranslated) {
 
@@ -537,18 +537,18 @@ NTSTATUS SetupInterrupts(IN PXDMA_DEVICE xdma,
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "CountInterruptResources failed: %!STATUS!", status);
     }
-    status = GetNumMsiVectors(xdma->wdfDevice, &numMsiVectors);
+    status = GetNumMsiVectors(adma->wdfDevice, &numMsiVectors);
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "GetNumMsiVectors failed: %!STATUS!", status);
     }
 
-    TraceVerbose(DBG_INIT, "xdma->numIrqResources=%u", numIrqResources);
-    if (numIrqResources >= XDMA_MAX_NUM_IRQ) { // msi-x
-        status = SetupMsixInterrupts(xdma, ResourcesRaw, ResourcesTranslated);
-    } else if (numMsiVectors >= XDMA_MAX_NUM_IRQ) { //multi-message MSI with enough contiguous vectors
-        status = SetupMultiMsiInterrupts(xdma, ResourcesRaw, ResourcesTranslated, numMsiVectors);
+    TraceVerbose(DBG_INIT, "adma->numIrqResources=%u numMsiVectors=%u", numIrqResources, numMsiVectors);
+    if (numIrqResources >= ADMA_MAX_NUM_IRQ) { // msi-x
+        status = SetupMsixInterrupts(adma, ResourcesRaw, ResourcesTranslated);
+    } else if (numMsiVectors >= ADMA_MAX_NUM_IRQ) { //multi-message MSI with enough contiguous vectors
+        status = SetupMultiMsiInterrupts(adma, ResourcesRaw, ResourcesTranslated, numMsiVectors);
     } else { // Line or single-message MSI
-        status = SetupSingleInterrupt(xdma, ResourcesRaw, ResourcesTranslated);
+        status = SetupSingleInterrupt(adma, ResourcesRaw, ResourcesTranslated);
     }
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "Setting up interrupts failed: %!STATUS!", status);
@@ -558,37 +558,37 @@ NTSTATUS SetupInterrupts(IN PXDMA_DEVICE xdma,
 
 // ============================== public api implementation =======================================
 
-NTSTATUS XDMA_UserIsrRegister(PXDMA_DEVICE xdma, ULONG eventId, PFN_XDMA_USER_WORK handler,
+NTSTATUS ADMA_UserIsrRegister(PADMA_DEVICE adma, ULONG eventId, PFN_ADMA_USER_WORK handler,
                               void* userData) {
-    if (eventId >= XDMA_MAX_USER_IRQ) {
+    if (eventId >= ADMA_MAX_USER_IRQ) {
         TraceError(DBG_INIT, "Invalid index! %u", eventId);
         return STATUS_INVALID_PARAMETER;
     }
 
-    xdma->userEvents[eventId].work = handler;
-    xdma->userEvents[eventId].userData = userData;
+    adma->userEvents[eventId].work = handler;
+    adma->userEvents[eventId].userData = userData;
     return STATUS_SUCCESS;
 }
 
-NTSTATUS XDMA_UserIsrEnable(PXDMA_DEVICE xdma, ULONG eventId) {
-    EXPECT(xdma != NULL);
+NTSTATUS ADMA_UserIsrEnable(PADMA_DEVICE adma, ULONG eventId) {
+    EXPECT(adma != NULL);
 
-    if (eventId >= XDMA_MAX_USER_IRQ) {
+    if (eventId >= ADMA_MAX_USER_IRQ) {
         TraceError(DBG_INIT, "Invalid index! %u", eventId);
         return STATUS_INVALID_PARAMETER;
     }
-    xdma->interruptRegs->userIntEnableW1S = BIT_N(eventId);
+    adma->interruptRegs->userIntEnableW1S = BIT_N(eventId);
     return STATUS_SUCCESS;
 }
 
-NTSTATUS XDMA_UserIsrDisable(PXDMA_DEVICE xdma, ULONG eventId) {
-    EXPECT(xdma != NULL);
+NTSTATUS ADMA_UserIsrDisable(PADMA_DEVICE adma, ULONG eventId) {
+    EXPECT(adma != NULL);
 
-    if (eventId >= XDMA_MAX_USER_IRQ) {
+    if (eventId >= ADMA_MAX_USER_IRQ) {
         TraceError(DBG_INIT, "Invalid index! %u", eventId);
         return STATUS_INVALID_PARAMETER;
     }
-    xdma->interruptRegs->userIntEnableW1C = BIT_N(eventId);
+    adma->interruptRegs->userIntEnableW1C = BIT_N(eventId);
     return STATUS_SUCCESS;
 }
 

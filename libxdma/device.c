@@ -49,7 +49,7 @@
 
 // ====================== constants ========================================================
 
-// Version constants for the XMDA IP core
+// Version constants for the XDMA IP core
 typedef enum XDMA_IP_VERSION_T {
     v2015_4 = 1,
     v2016_1 = 2,
@@ -231,7 +231,8 @@ NTSTATUS XDMA_DeviceOpen(WDFDEVICE wdfDevice,
     }
 
     // WDF DMA Enabler - at least 8 bytes alignment
-    WdfDeviceSetAlignmentRequirement(xdma->wdfDevice, 8 - 1); // TODO - choose correct value
+    //WdfDeviceSetAlignmentRequirement(xdma->wdfDevice, 8 - 1); // TODO - choose correct value
+	WdfDeviceSetAlignmentRequirement(xdma->wdfDevice, FILE_QUAD_ALIGNMENT); //add by zhuce // TODO - choose correct value
     WDF_DMA_ENABLER_CONFIG dmaConfig;
     WDF_DMA_ENABLER_CONFIG_INIT(&dmaConfig, WdfDmaProfileScatterGather64Duplex, XDMA_MAX_TRANSFER_SIZE);
     status = WdfDmaEnablerCreate(xdma->wdfDevice, &dmaConfig, WDF_NO_OBJECT_ATTRIBUTES, &xdma->dmaEnabler);

@@ -127,6 +127,7 @@ AddReg         = XDMA_Inst.NT.Services.AddReg
 
 [XDMA_Inst.NT.Services.AddReg]
 HKR,Parameters,"POLL_MODE",0x00010001,0 ; set to 1 for hardware polling, default is 0 (interrupts)
+HKR,Parameters,"XADMA_TYPE",0x00010001,0 ; set to 1 for ADMA, default is 0 (XDMA)
 
 ; ====================== WDF Coinstaller installation =========================
 
@@ -148,8 +149,8 @@ KmdfLibraryVersion = $KMDFVERSION$
 
 ;======================= String Definitions ===================================
 [Strings]
-Companyname				= "Xilinx"
-ClassName				= "Xilinx Drivers"
-XDMA.SVCDESC			= "Xilinx DMA Driver Service"
-XDMA.DRVDESC			= "Xilinx DMA"
-DeviceDescription		= "Xilinx FPGA device"
+Companyname				= "Qinger"
+ClassName				= "Qinger Drivers"
+XDMA.SVCDESC			= "Qinger DMA Driver Service"
+XDMA.DRVDESC			= "Qinger DMA"
+DeviceDescription		= "Qinger FPGA device"

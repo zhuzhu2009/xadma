@@ -329,7 +329,7 @@
       </MultiProcessorCompilation>
       <WppRecorderEnabled>false</WppRecorderEnabled>
       <WppMinimalRebuildFromTracking>true</WppMinimalRebuildFromTracking>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\libxdma;$(ProjectDir)..\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\libadma;$(ProjectDir)..\libxdma;$(ProjectDir)..\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <MessageCompile>
       <GenerateKernelModeLoggingMacros>true</GenerateKernelModeLoggingMacros>
@@ -410,6 +410,9 @@
     <Inf Include="XDMA.inx" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\libadma\libadma.vcxproj">
+      <Project>{4ebaeee4-8413-4366-920a-219e626cf9eb}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\libxdma\libxdma.vcxproj">
       <Project>{8a516bcb-685a-4a46-a298-a477f804273a}</Project>
     </ProjectReference>
