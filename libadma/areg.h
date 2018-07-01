@@ -184,6 +184,7 @@ typedef struct {
     UINT32 rdTableSize;
 	UINT32 rdControl;
 	UINT32 reserved1[57];//0xFC
+	/*
 	UINT32 wrRcStatusDescLo;//0x100
 	UINT32 wrRcStatusDescHi;
 	UINT32 wrEpDescFifoLo;
@@ -192,6 +193,7 @@ typedef struct {
 	UINT32 wrTableSize;
 	UINT32 wrControl;
 	UINT32 reserved2[57];//0x1FC
+	*/
 } ADMA_SGDMA_REGS, *PADMA_SGDMA_REGS;
 
 /// SGDMA Common Registers (0x6000)

@@ -60,7 +60,8 @@ static NTSTATUS EngineCreatePollWriteBackBuffer(IN OUT ADMA_ENGINE *engine);
 
 static NTSTATUS EngineCreateDescriptorBuffer(IN OUT ADMA_ENGINE *engine) {
     // allocate host-side buffer for descriptors
-    SIZE_T bufferSize = (ADMA_MAX_TRANSFER_SIZE / PAGE_SIZE + 2) * sizeof(DMA_DESCRIPTOR);
+    //SIZE_T bufferSize = (ADMA_MAX_TRANSFER_SIZE / PAGE_SIZE + 2) * sizeof(DMA_DESCRIPTOR);
+	SIZE_T bufferSize = sizeof(ADMA_RESULT) + ADMA_MAX_DESCRIPTOR_NUM * sizeof(ADMA_DESCRIPTOR);//add by zc
 
     NTSTATUS status = WdfCommonBufferCreate(engine->parentDevice->dmaEnabler, bufferSize,
                                             WDF_NO_OBJECT_ATTRIBUTES, &engine->descBuffer);
@@ -74,16 +75,21 @@ static NTSTATUS EngineCreateDescriptorBuffer(IN OUT ADMA_ENGINE *engine) {
     RtlZeroMemory(descBufferVA, bufferSize);
 
     // give hw the physical start address of the descriptor buffer
-    engine->sgdma->firstDescLo = descBufferLA.LowPart;
-    engine->sgdma->firstDescHi = descBufferLA.HighPart;
-    engine->sgdma->firstDescAdj = 0; // depends on transfer - set later in ProgramDMA
+    //engine->sgdma->firstDescLo = descBufferLA.LowPart;
+	engine->sgdma->rdRcStatusDescLo = descBufferLA.LowPart;//add by zc
+    //engine->sgdma->firstDescHi = descBufferLA.HighPart;
+	engine->sgdma->rdRcStatusDescHi = descBufferLA.HighPart;//add by zc
+    //engine->sgdma->firstDescAdj = 0; // depends on transfer - set later in ProgramDMA
 
-    TraceVerbose(DBG_INIT, "descriptor buffer at 0x%08x%08x, size=%lld",
-                 engine->sgdma->firstDescHi, engine->sgdma->firstDescLo, bufferSize);
-    return status;
+    //TraceVerbose(DBG_INIT, "status and descriptor buffer at 0x%08x%08x, size=%lld",
+    //             engine->sgdma->firstDescHi, engine->sgdma->firstDescLo, bufferSize);
+	TraceVerbose(DBG_INIT, "status and descriptor buffer at 0x%08x%08x, size=%lld",
+				 engine->sgdma->rdRcStatusDescLo, engine->sgdma->rdRcStatusDescHi, bufferSize);
+	return status;
 }
 
 static void EngineConfigureInterrupt(IN OUT ADMA_ENGINE *engine, IN UINT index) {
+#if 0
     // engine interrupt request bit(s) - interrupt bit depends on number of engines present
     // see Figure 2-4 on page 46 of pcie dma product guide [1]
     engine->irqBitMask = (1 << ADMA_ENG_IRQ_NUM) - 1;
@@ -102,8 +108,10 @@ static void EngineConfigureInterrupt(IN OUT ADMA_ENGINE *engine, IN UINT index) 
     }
     engine->regs->intEnableMaskW1S = regVal;
     engine->regs->controlW1S = regVal;
+
     TraceVerbose(DBG_INIT, "engineIrqBitMask=0x%08x, intEnableMask=0x%08x",
                  engine->irqBitMask, engine->regs->intEnableMask);
+#endif
 }
 
 static void EngineProcessTransfer(IN ADMA_ENGINE *engine)
@@ -315,7 +323,7 @@ static NTSTATUS EngineCreate(PADMA_DEVICE adma, ADMA_ENGINE* engine, DirToDev di
     }
 #endif
     // capture alignment requirements
-    EngineGetAlignments(engine);
+    //EngineGetAlignments(engine);//comment by zc, adma hasn't this feature
 
     // create and bind dma desciptor buffer to hw
     status = EngineCreateDescriptorBuffer(engine);
