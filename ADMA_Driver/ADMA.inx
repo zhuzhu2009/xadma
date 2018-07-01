@@ -93,7 +93,6 @@ AddReg         = ADMA_Inst.NT.Services.AddReg
 
 [ADMA_Inst.NT.Services.AddReg]
 HKR,Parameters,"POLL_MODE",0x00010001,0 ; set to 1 for hardware polling, default is 0 (interrupts)
-HKR,Parameters,"XADMA_TYPE",0x00010001,0 ; set to 1 for ADMA, default is 0 (XDMA)
 
 ; ====================== WDF Coinstaller installation =========================
 

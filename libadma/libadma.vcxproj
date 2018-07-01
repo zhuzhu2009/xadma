@@ -35,16 +35,12 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="altera_dma.c" />
-    <ClCompile Include="altera_dma_temp.c" />
     <ClCompile Include="adevice.c" />
     <ClCompile Include="adma_engine.c" />
     <ClCompile Include="ainterrupt.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="adma.h" />
-    <ClInclude Include="altera_dma.h" />
-    <ClInclude Include="altera_dma_cmd.h" />
     <ClInclude Include="adevice.h" />
     <ClInclude Include="adma_engine.h" />
     <ClInclude Include="ainterrupt.h" />

@@ -11,5 +11,6 @@
     <ClInclude Include="driver.h" />
     <ClInclude Include="file_io.h" />
     <ClInclude Include="trace.h" />
+    <ClInclude Include="..\inc\adma_public.h" />
   </ItemGroup>
 </Project>

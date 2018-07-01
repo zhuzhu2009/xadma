@@ -1,5 +1,5 @@
 /*
-* XDMA Device File Interfaces for public API
+* ADMA Device File Interfaces for public API
 * ===============================
 *
 * Copyright 2017 Xilinx Inc.
@@ -28,8 +28,7 @@
 // ========================= include dependencies =================================================
 
 #include "driver.h"
-#include "dma_engine.h"
-#include "xdma_public.h"
+#include "adma_engine.h"
 #include "adma_public.h"
 #include "file_io.h"
 
@@ -49,34 +48,6 @@ const static struct {
     const wchar_t *wstr;
     ULONG channel;
 } FileNameLUT[] = {
-    { DEVNODE_TYPE_H2C,         XDMA_FILE_H2C_0,        0 },
-    { DEVNODE_TYPE_C2H,         XDMA_FILE_C2H_0,        0 },
-    { DEVNODE_TYPE_H2C,         XDMA_FILE_H2C_1,        1 },
-    { DEVNODE_TYPE_C2H,         XDMA_FILE_C2H_1,        1 },
-    { DEVNODE_TYPE_H2C,         XDMA_FILE_H2C_2,        2 },
-    { DEVNODE_TYPE_C2H,         XDMA_FILE_C2H_2,        2 },
-    { DEVNODE_TYPE_H2C,         XDMA_FILE_H2C_3,        3 },
-    { DEVNODE_TYPE_C2H,         XDMA_FILE_C2H_3,        3 },
-    { DEVNODE_TYPE_USER,        XDMA_FILE_USER,         0 },
-    { DEVNODE_TYPE_CONTROL,     XDMA_FILE_CONTROL,      0 },
-    { DEVNODE_TYPE_BYPASS,      XDMA_FILE_BYPASS,       0 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_0,      0 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_1,      1 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_2,      2 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_3,      3 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_4,      4 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_5,      5 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_6,      6 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_7,      7 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_8,      8 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_9,      9 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_10,     10 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_11,     11 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_12,     12 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_13,     13 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_14,     14 },
-    { DEVNODE_TYPE_EVENTS,      XDMA_FILE_EVENT_15,     15 },
-//ADMA add by zc
 	{ DEVNODE_TYPE_AH2C,         ADMA_FILE_H2C_0,        0 },
 	{ DEVNODE_TYPE_AC2H,         ADMA_FILE_C2H_0,        0 },
 };
@@ -98,7 +69,7 @@ static VOID GetDevNodeType(PUNICODE_STRING fileName, PFILE_CONTEXT file, ULONG* 
 VOID EvtDeviceFileCreate(IN WDFDEVICE device, IN WDFREQUEST Request, IN WDFFILEOBJECT WdfFile) {
     PUNICODE_STRING fileName = WdfFileObjectGetFileName(WdfFile);
     DeviceContext* ctx = GetDeviceContext(device);
-    PXDMA_DEVICE xdma = &(ctx->xdma);
+    PADMA_DEVICE adma = &(ctx->adma);
     PFILE_CONTEXT devNode = GetFileContext(WdfFile);
     NTSTATUS status = STATUS_SUCCESS;
 
@@ -122,32 +93,32 @@ VOID EvtDeviceFileCreate(IN WDFDEVICE device, IN WDFREQUEST Request, IN WDFFILEO
     // additional checks/setup for based on device type
     switch (devNode->devType) {
     case DEVNODE_TYPE_CONTROL:
-        devNode->u.bar = xdma->bar[xdma->configBarIdx];
+        devNode->u.bar = adma->bar[adma->configBarIdx];
         break;
     case DEVNODE_TYPE_USER:
-        if (xdma->userBarIdx < 0) {
+        if (adma->userBarIdx < 0) {
             TraceError(DBG_IO, "Failed to create 'user' device file. User BAR does not exist!");
             status = STATUS_INVALID_PARAMETER;
             goto ErrExit;
         }
-        devNode->u.bar = xdma->bar[xdma->userBarIdx];
+        devNode->u.bar = adma->bar[adma->userBarIdx];
         break;
     case DEVNODE_TYPE_BYPASS:
-        if (xdma->bypassBarIdx < 0) {
+        if (adma->bypassBarIdx < 0) {
             TraceError(DBG_IO, "Failed to create 'bypass' device file. User BAR does not exist!");
             status = STATUS_INVALID_PARAMETER;
             goto ErrExit;
         }
-        devNode->u.bar = xdma->bar[xdma->bypassBarIdx];
+        devNode->u.bar = adma->bar[adma->bypassBarIdx];
         break;
     case DEVNODE_TYPE_H2C:
     case DEVNODE_TYPE_C2H:
     {
         DirToDev dir = devNode->devType == DEVNODE_TYPE_H2C ? H2C : C2H;
-        XDMA_ENGINE* engine = &(xdma->engines[index][dir]);
+        ADMA_ENGINE* engine = &(adma->engines[index][dir]);
 
         if (engine->enabled == FALSE) {
-            TraceError(DBG_IO, "Error: engine %s_%d not enabled in XDMA IP core",
+            TraceError(DBG_IO, "Error: engine %s_%d not enabled in ADMA IP core",
                        dir == H2C ? "h2c" : "c2h", index);
             status = STATUS_INVALID_PARAMETER;
             goto ErrExit;
@@ -171,7 +142,7 @@ VOID EvtDeviceFileCreate(IN WDFDEVICE device, IN WDFREQUEST Request, IN WDFFILEO
 	case DEVNODE_TYPE_AC2H:
 	{
 		DirToDev dir = devNode->devType == DEVNODE_TYPE_AH2C ? H2C : C2H;
-		XDMA_ENGINE* engine = &(xdma->engines[index][dir]);
+		ADMA_ENGINE* engine = &(adma->engines[index][dir]);
 
 		if (engine->enabled == FALSE) {
 			TraceError(DBG_IO, "Error: engine %s_%d not enabled in ADMA IP core",
@@ -194,7 +165,7 @@ VOID EvtDeviceFileCreate(IN WDFDEVICE device, IN WDFREQUEST Request, IN WDFFILEO
 		break;
 	}
     case DEVNODE_TYPE_EVENTS:
-        devNode->u.event = &(xdma->userEvents[index]);
+        devNode->u.event = &(adma->userEvents[index]);
         break;
     default:
         break;
@@ -222,20 +193,20 @@ VOID EvtFileCleanup(IN WDFFILEOBJECT FileObject) {
     TraceVerbose(DBG_IO, "Cleanup %wZ", fileName);
 }
 
-static NTSTATUS ValidateBarParams(IN PXDMA_DEVICE xdma, ULONG nBar, size_t offset, size_t length) {
+static NTSTATUS ValidateBarParams(IN PADMA_DEVICE adma, ULONG nBar, size_t offset, size_t length) {
     if (length == 0) {
         TraceError(DBG_IO, "Error: attempting to read 0 bytes");
         return STATUS_INVALID_DEVICE_REQUEST;
     }
 
     // invalid BAR index?
-    if (nBar >= xdma->numBars) {
+    if (nBar >= adma->numBars) {
         TraceError(DBG_IO, "Error: attempting to read BAR %u but only 2 exist", nBar);
         return STATUS_INVALID_DEVICE_REQUEST;
     }
 
     // access outside valid BAR address range?
-    if (offset + length >= xdma->barLength[nBar]) {
+    if (offset + length >= adma->barLength[nBar]) {
         TraceError(DBG_IO, "Error: attempting to read BAR %u offset=%llu size=%llu",
                    nBar, offset, length);
         return STATUS_INVALID_DEVICE_REQUEST;
@@ -383,6 +354,7 @@ VOID EvtIoRead(IN WDFQUEUE queue, IN WDFREQUEST request, IN size_t length)
     }
 #endif
     case DEVNODE_TYPE_H2C:
+	case DEVNODE_TYPE_AH2C://add by zc
     default:
         TraceError(DBG_IO, "fails with invalid DevNodeID %d", file->devType);
         status = STATUS_INVALID_DEVICE_REQUEST;
@@ -408,6 +380,18 @@ VOID EvtIoWrite(IN WDFQUEUE queue, IN WDFREQUEST request, IN size_t length)
     TraceVerbose(DBG_IO, "DevNodeID %d", file->devType);
 
     switch (file->devType) {
+	case DEVNODE_TYPE_H2C:
+		ASSERTMSG("no engine attached to file context", file->u.engine != NULL);
+
+		// forward request to write engine queue, it ends up in EvtIoWriteDma() later
+		status = WdfRequestForwardToIoQueue(request, file->queue);
+		break;
+	case DEVNODE_TYPE_AH2C:
+		ASSERTMSG("no engine attached to file context", file->u.engine != NULL);
+
+		// forward request to write engine queue, it ends up in EvtIoWriteDma() later
+		status = WdfRequestForwardToIoQueue(request, file->queue);
+		break;
     case DEVNODE_TYPE_USER:
     case DEVNODE_TYPE_CONTROL:
     case DEVNODE_TYPE_BYPASS:
@@ -418,13 +402,16 @@ VOID EvtIoWrite(IN WDFQUEUE queue, IN WDFREQUEST request, IN size_t length)
             WdfRequestCompleteWithInformation(request, status, length);  // complete the request        }
         }
         break;
+#if 0
     case DEVNODE_TYPE_H2C:
         ASSERTMSG("no engine attached to file context", file->u.engine != NULL);
 
         // forward request to write engine queue, it ends up in EvtIoWriteDma() later
         status = WdfRequestForwardToIoQueue(request, file->queue);
         break;
+#endif
     case DEVNODE_TYPE_C2H:
+	case DEVNODE_TYPE_AC2H://add by zc
     default:
         status = STATUS_INVALID_DEVICE_REQUEST;
         break;
@@ -438,10 +425,10 @@ VOID EvtIoWrite(IN WDFQUEUE queue, IN WDFREQUEST request, IN size_t length)
     return; // request has been either completed directly or forwarded to a queue
 }
 
-static NTSTATUS IoctlGetPerf(IN WDFREQUEST request, IN XDMA_ENGINE* engine) {
+static NTSTATUS IoctlGetPerf(IN WDFREQUEST request, IN ADMA_ENGINE* engine) {
 
     ASSERT(engine != NULL);
-    XDMA_PERF_DATA perfData = { 0 };
+    ADMA_PERF_DATA perfData = { 0 };
     EngineGetPerf(engine, &perfData);
 
     // get handle to the IO request memory which will hold the read data
@@ -462,10 +449,10 @@ static NTSTATUS IoctlGetPerf(IN WDFREQUEST request, IN XDMA_ENGINE* engine) {
     return status;
 }
 
-static NTSTATUS IoctlGetAddrMode(IN WDFREQUEST request, IN XDMA_ENGINE* engine) {
+static NTSTATUS IoctlGetAddrMode(IN WDFREQUEST request, IN ADMA_ENGINE* engine) {
 
     ASSERT(engine != NULL);
-    ULONG addrMode = (engine->regs->control & XDMA_CTRL_NON_INCR_ADDR) != 0; // 0 = inc, 1=non-inc
+    ULONG addrMode = (engine->regs->control & ADMA_CTRL_NON_INCR_ADDR) != 0; // 0 = inc, 1=non-inc
     TraceVerbose(DBG_IO, "addrMode=%u", addrMode);
 
     // get handle to the IO request memory which will hold the read data
@@ -486,7 +473,7 @@ static NTSTATUS IoctlGetAddrMode(IN WDFREQUEST request, IN XDMA_ENGINE* engine) 
     return status;
 }
 
-static NTSTATUS IoctlSetAddrMode(IN WDFREQUEST request, IN XDMA_ENGINE* engine) {
+static NTSTATUS IoctlSetAddrMode(IN WDFREQUEST request, IN ADMA_ENGINE* engine) {
 
     ASSERT(engine != NULL);
 
@@ -507,9 +494,9 @@ static NTSTATUS IoctlSetAddrMode(IN WDFREQUEST request, IN XDMA_ENGINE* engine) 
     }
 
     if (addrMode) {
-        engine->regs->controlW1S = XDMA_CTRL_NON_INCR_ADDR;
+        engine->regs->controlW1S = ADMA_CTRL_NON_INCR_ADDR;
     } else {
-        engine->regs->controlW1C = XDMA_CTRL_NON_INCR_ADDR;
+        engine->regs->controlW1C = ADMA_CTRL_NON_INCR_ADDR;
     }
     engine->addressMode = addrMode;
 
@@ -537,34 +524,34 @@ VOID EvtIoDeviceControl(IN WDFQUEUE Queue, IN WDFREQUEST request, IN size_t Outp
         goto exit;
     }
 
-    // ioctl codes defined in xdma_public.h
+    // ioctl codes defined in adma_public.h
 
     switch (IoControlCode) {
-    case IOCTL_XDMA_PERF_START:
-        TraceInfo(DBG_IO, "%s_%u IOCTL_XDMA_PERF_START",
+    case IOCTL_ADMA_PERF_START:
+        TraceInfo(DBG_IO, "%s_%u IOCTL_ADMA_PERF_START",
                   queue->engine->dir == H2C ? "H2C" : "C2H", queue->engine->channel);
         EngineStartPerf(queue->engine);
         status = STATUS_SUCCESS;
         WdfRequestComplete(request, status);
         break;
-    case IOCTL_XDMA_PERF_GET:
-        TraceInfo(DBG_IO, "%s_%u IOCTL_XDMA_PERF_GET",
+    case IOCTL_ADMA_PERF_GET:
+        TraceInfo(DBG_IO, "%s_%u IOCTL_ADMA_PERF_GET",
                   queue->engine->dir == H2C ? "H2C" : "C2H", queue->engine->channel);
         status = IoctlGetPerf(request, queue->engine);
         if (NT_SUCCESS(status)) {
-            WdfRequestCompleteWithInformation(request, status, sizeof(XDMA_PERF_DATA));
+            WdfRequestCompleteWithInformation(request, status, sizeof(ADMA_PERF_DATA));
         }
         break;
-    case IOCTL_XDMA_ADDRMODE_GET:
-        TraceInfo(DBG_IO, "%s_%u IOCTL_XDMA_ADDRMODE_GET",
+    case IOCTL_ADMA_ADDRMODE_GET:
+        TraceInfo(DBG_IO, "%s_%u IOCTL_ADMA_ADDRMODE_GET",
                   queue->engine->dir == H2C ? "H2C" : "C2H", queue->engine->channel);
         status = IoctlGetAddrMode(request, queue->engine);
         if (NT_SUCCESS(status)) {
             WdfRequestCompleteWithInformation(request, status, sizeof(ULONG));
         }
         break;
-    case IOCTL_XDMA_ADDRMODE_SET:
-        TraceInfo(DBG_IO, "%s_%u IOCTL_XDMA_ADDRMODE_SET",
+    case IOCTL_ADMA_ADDRMODE_SET:
+        TraceInfo(DBG_IO, "%s_%u IOCTL_ADMA_ADDRMODE_SET",
                   queue->engine->dir == H2C ? "H2C" : "C2H", queue->engine->channel);
         status = IoctlSetAddrMode(request, queue->engine);
         if (NT_SUCCESS(status)) {
@@ -594,13 +581,13 @@ VOID EvtIoWriteDma(IN WDFQUEUE wdfQueue, IN WDFREQUEST Request, IN size_t length
 
     TraceVerbose(DBG_IO, "%!FUNC!(queue=%p, request=%p, length=%llu)", wdfQueue, Request, length);
 
-    XDMA_ENGINE* engine = queue->engine;
+    ADMA_ENGINE* engine = queue->engine;
     TraceInfo(DBG_IO, "%s_%u writing %llu bytes to device",
               DirectionToString(engine->dir), engine->channel, length);
 
     // initialize a DMA transaction from the request 
     status = WdfDmaTransactionInitializeUsingRequest(queue->engine->dmaTransaction, Request,
-                                                     XDMA_EngineProgramDma,
+                                                     ADMA_EngineProgramDma,
                                                      WdfDmaDirectionWriteToDevice);
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_IO, "WdfDmaTransactionInitializeUsingRequest failed: %!STATUS!", status);
@@ -643,13 +630,13 @@ VOID EvtIoReadDma(IN WDFQUEUE wdfQueue, IN WDFREQUEST Request, IN size_t length)
 
     TraceVerbose(DBG_IO, "%!FUNC!(queue=%p, request=%p, length=%llu)", wdfQueue, Request, length);
 
-    XDMA_ENGINE* engine = queue->engine;
+    ADMA_ENGINE* engine = queue->engine;
     TraceInfo(DBG_IO, "%s_%u reading %llu bytes from device",
               DirectionToString(engine->dir), engine->channel, length);
 
     // initialize a DMA transaction from the request
     status = WdfDmaTransactionInitializeUsingRequest(queue->engine->dmaTransaction, Request,
-                                                     XDMA_EngineProgramDma,
+                                                     ADMA_EngineProgramDma,
                                                      WdfDmaDirectionReadFromDevice);
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_IO, "WdfDmaTransactionInitializeUsingRequest failed: %!STATUS!",
@@ -668,7 +655,7 @@ VOID EvtIoReadDma(IN WDFQUEUE wdfQueue, IN WDFREQUEST Request, IN size_t length)
         TraceError(DBG_IO, "WdfDmaTransactionExecute failed: %!STATUS!", status);
         goto ErrExit;
     }
-
+#if 0//adma hasn't this feature
     if (queue->engine->poll) {
         status = EnginePollTransfer(queue->engine);
         if (!NT_SUCCESS(status)) {
@@ -676,7 +663,7 @@ VOID EvtIoReadDma(IN WDFQUEUE wdfQueue, IN WDFREQUEST Request, IN size_t length)
             // EnginePollTransfer cleans-up/completes request on error, so no need for goto ErrExit
         }
     }
-
+#endif
     return; // success
 ErrExit:
     WdfDmaTransactionRelease(queue->engine->dmaTransaction);
@@ -687,7 +674,7 @@ ErrExit:
 VOID EvtIoReadEngineRing(IN WDFQUEUE wdfQueue, IN WDFREQUEST Request, IN size_t length) {
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     PQUEUE_CONTEXT queue = GetQueueContext(wdfQueue);
-    XDMA_ENGINE* engine = queue->engine;
+    ADMA_ENGINE* engine = queue->engine;
 
     // get output buffer
     WDFMEMORY outputMem;

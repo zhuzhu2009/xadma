@@ -15,12 +15,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="altera_dma.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="altera_dma_temp.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="adevice.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -32,12 +26,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="altera_dma.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="altera_dma_cmd.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="adma.h">
       <Filter>Header Files</Filter>
     </ClInclude>

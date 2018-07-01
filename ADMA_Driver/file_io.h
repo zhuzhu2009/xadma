@@ -1,5 +1,5 @@
 /*
-* XDMA Device File Interfaces for public API
+* ADMA Device File Interfaces for public API
 * ===============================
 *
 * Copyright 2017 Xilinx Inc.
@@ -39,8 +39,8 @@ typedef struct _FILE_CONTEXT {
     DEVNODE_TYPE devType;
     union {
         void* bar;              // USER / CONTROL / BYPASS
-        XDMA_EVENT* event;      // EVENTS
-        XDMA_ENGINE* engine;    // H2C / C2H
+        ADMA_EVENT* event;      // EVENTS
+        ADMA_ENGINE* engine;    // H2C / C2H
     } u;
     WDFQUEUE queue;
 
@@ -49,7 +49,7 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(FILE_CONTEXT, GetFileContext)
 
 // Queue Context Data
 typedef struct _QUEUE_CONTEXT {
-    XDMA_ENGINE* engine;
+    ADMA_ENGINE* engine;
 } QUEUE_CONTEXT, *PQUEUE_CONTEXT;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(QUEUE_CONTEXT, GetQueueContext)
 

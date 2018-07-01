@@ -93,6 +93,9 @@
 #define ADMA_PERF_CLEAR                     BIT_N(1)
 #define ADMA_PERF_AUTO                      BIT_N(2)
 
+#define ADMA_RD_DTS_ADDR					(0x80000000UL)//add by zc
+#define ADMA_WR_DTS_ADDR					(0x80002000UL)//add by zc
+
 #pragma pack(1)
 
 /// H2C/C2H Channel Registers (H2C: 0x0, C2H: 0x1000)
@@ -176,13 +179,13 @@ typedef struct {
 
 /// H2C/C2H SGDMA Registers (H2C: 0x0, C2H:0x100)
 typedef struct {
-    UINT32 rdRcStatusDescLo;//0x00
-    UINT32 rdRcStatusDescHi;
-    UINT32 rdEpDescFifoLo;
-    UINT32 rdEpDescFifoHi;
-    UINT32 rdDmaLastPtr;
-    UINT32 rdTableSize;
-	UINT32 rdControl;
+    UINT32 rcStatusDescLo;//0x00
+    UINT32 rcStatusDescHi;
+    UINT32 epDescFifoLo;
+    UINT32 epDescFifoHi;
+    UINT32 dmaLastPtr;
+    UINT32 tableSize;
+	UINT32 control;
 	UINT32 reserved1[57];//0xFC
 	/*
 	UINT32 wrRcStatusDescLo;//0x100
