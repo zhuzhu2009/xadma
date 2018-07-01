@@ -1,0 +1,122 @@
+;/*++
+;
+;Copyright (c) Xilinx  All rights reserved.
+;
+;   THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY
+;   KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+;   IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A PARTICULAR
+;   PURPOSE.
+;
+;Module Name:
+;
+;    ADMA.inf
+;
+;Abstract:
+;    INF file for a ADMA device.
+;
+;--*/
+
+[Version]
+CatalogFile               = ADMA.cat
+Class                     = %ClassName% ;TODO use a different class - maybe "Memory Technology device" or "MultiFunction device"
+ClassGuid                 = {a3a4c1ce-5a80-452c-9b51-a98edd3378d1}
+DriverPackageDisplayName  = %ADMA.DRVDESC%
+DriverPackageType         = PlugAndPlay
+DriverVer                 = 11/22/2011,1.2
+Provider                  = %Companyname%
+Signature                 = "$WINDOWS NT$"
+
+[DestinationDirs]
+DefaultDestDir  = 12
+CoInstaller_CopyFiles = 11
+
+; ====================== Class Section ========================================
+[ClassInstall32]
+Addreg		= ADMA.ClassReg
+
+[ADMA.ClassReg]
+HKR,,,0,%ClassName%
+HKR,,Icon,,-5
+HKR,,DeviceCharacteristics,0x10001,0x100     ;Use same security checks on relative opens
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;WD)" ;Allow generic all access to system, built-in Admin and World
+
+; ====================== Device Install Section ===============================
+[ControlFlags]
+ExcludeFromSelect = *
+
+[Manufacturer]
+%Companyname%=Xilinx,NT$ARCH$
+
+[SourceDisksFiles]
+ADMA.sys    = 1
+WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll = 1 ; make sure the number matches with SourceDisksNames
+
+[SourceDisksNames]
+1="ADMA Install Disk",
+
+; For XP and later
+[Xilinx.NT$ARCH$]
+; DisplayName           Section			DeviceId
+; -----------           -------			--------
+%ADMA.DRVDESC%=			ADMA_Inst,		PCI\VEN_1172&DEV_e001
+%ADMA.DRVDESC%=			ADMA_Inst,		PCI\VEN_1172&DEV_e002
+%ADMA.DRVDESC%=			ADMA_Inst,		PCI\VEN_1172&DEV_e003
+
+[ADMA_Inst.NT]
+CopyFiles      = ADMA.CopyFiles
+
+[ADMA.CopyFiles]
+ADMA.sys
+
+; MSI/MSI-X support
+[ADMA_Inst.NT.HW]
+AddReg = ADMA.EnableMSI
+
+; 24 Interrupt resources are required - 16 for user events and 8 for dma channels
+[ADMA.EnableMSI]
+HKR,"Interrupt Management",,0x00000010
+HKR,"Interrupt Management\MessageSignaledInterruptProperties",,0x00000010
+HKR,"Interrupt Management\MessageSignaledInterruptProperties",MSISupported,0x00010001,1
+HKR,"Interrupt Management\MessageSignaledInterruptProperties",MessageNumberLimit,0x00010001,32
+
+
+[ADMA_Inst.NT.Services]
+AddService     = ADMA,0x00000002,ADMA_Service
+
+[ADMA_Service]
+DisplayName    = %ADMA.SVCDESC%
+ServiceType    = 1                  ; SERVICE_KERNEL_DRIVER
+StartType      = 3                  ; SERVICE_DEMAND_START
+ErrorControl   = 1                  ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\ADMA.sys
+AddReg         = ADMA_Inst.NT.Services.AddReg
+
+[ADMA_Inst.NT.Services.AddReg]
+HKR,Parameters,"POLL_MODE",0x00010001,0 ; set to 1 for hardware polling, default is 0 (interrupts)
+HKR,Parameters,"XADMA_TYPE",0x00010001,0 ; set to 1 for ADMA, default is 0 (XDMA)
+
+; ====================== WDF Coinstaller installation =========================
+
+[ADMA_Inst.NT.CoInstallers]
+AddReg         = CoInstaller_AddReg
+CopyFiles      = CoInstaller_CopyFiles
+
+[CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll,WdfCoInstaller"
+
+[CoInstaller_CopyFiles]
+WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll
+
+[ADMA_Inst.NT.Wdf]
+KmdfService    = ADMA, ADMA_wdfsect
+
+[ADMA_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+;======================= String Definitions ===================================
+[Strings]
+Companyname				= "Qinger"
+ClassName				= "Qinger Drivers"
+ADMA.SVCDESC			= "Qinger DMA Driver Service"
+ADMA.DRVDESC			= "Qinger DMA"
+DeviceDescription		= "Qinger FPGA device"

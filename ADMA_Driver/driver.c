@@ -42,6 +42,7 @@ EVT_WDF_DEVICE_PREPARE_HARDWARE     EvtDevicePrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE     EvtDeviceReleaseHardware;
 
 static NTSTATUS EngineCreateQueue(WDFDEVICE device, XDMA_ENGINE* engine, WDFQUEUE* queue);
+static NTSTATUS EngineCreateQueueADMA(WDFDEVICE device, XDMA_ENGINE* engine, WDFQUEUE* queue);//add by zhuce
 
 // Mark these functions as pageable code
 #ifdef ALLOC_PRAGMA
@@ -51,6 +52,7 @@ static NTSTATUS EngineCreateQueue(WDFDEVICE device, XDMA_ENGINE* engine, WDFQUEU
 #pragma alloc_text (PAGE, EvtDevicePrepareHardware)
 #pragma alloc_text (PAGE, EvtDeviceReleaseHardware)
 #pragma alloc_text (PAGE, EngineCreateQueue)
+#pragma alloc_text (PAGE, EngineCreateQueueADMA)
 #endif
 
 // ========================= definitions =================================================
@@ -132,7 +134,13 @@ NTSTATUS EvtDeviceAdd(IN WDFDRIVER Driver, IN PWDFDEVICE_INIT DeviceInit) {
     PAGED_CODE();
 
     TraceVerbose(DBG_INIT, "(Driver=0x%p)", Driver);
-
+	//for test
+	ULONG xadmaType = XADMA_TYPE_UNKNOWN;//add by zhuce
+	GetXadmaTypeParameter(&xadmaType);//add by zhuce
+	if (xadmaType >= XADMA_TYPE_UNKNOWN) {//add by zhuce
+		TraceError(DBG_INIT, "GetXadmaTypeParameter failed: %!STATUS!", STATUS_INVALID_PARAMETER);
+		return STATUS_INVALID_PARAMETER;
+	}
     //  We prefer Direct I/O
     //  Direct I/O only works with deferred buffer retrieval No guarantee that Direct I/O is
     //  actually used Direct I/O is only used for buffers that are full pages Buffered I/O is used
@@ -205,6 +213,117 @@ VOID EvtDeviceCleanup(IN WDFOBJECT device) {
     TraceInfo(DBG_INIT, "%!FUNC!");
 }
 
+static NTSTATUS GetXadmaTypeParameter(OUT PULONG xadmaType) {//add by zhuce
+	WDFDRIVER driver = WdfGetDriver();
+	WDFKEY key;
+	NTSTATUS status = WdfDriverOpenParametersRegistryKey(driver, STANDARD_RIGHTS_ALL,
+		WDF_NO_OBJECT_ATTRIBUTES, &key);
+	ULONG traceXadmaType;
+
+	if (!NT_SUCCESS(status)) {
+		TraceError(DBG_INIT, "WdfDriverOpenParametersRegistryKey failed: %!STATUS!", status);
+		WdfRegistryClose(key);
+		return status;
+	}
+
+	DECLARE_CONST_UNICODE_STRING(valueName, L"XADMA_TYPE");
+
+	status = WdfRegistryQueryULong(key, &valueName, xadmaType);
+	if (!NT_SUCCESS(status)) {
+		TraceError(DBG_INIT, "WdfRegistryQueryULong failed: %!STATUS!", status);
+		WdfRegistryClose(key);
+		return status;
+	}
+
+	traceXadmaType = *xadmaType;
+	TraceVerbose(DBG_INIT, "xadmaType=%u", traceXadmaType);
+
+	WdfRegistryClose(key);
+	return status;
+}
+
+static NTSTATUS EvtDevicePrepareHardwareXdma(IN WDFDEVICE device, IN WDFCMRESLIST Resources,
+											 IN WDFCMRESLIST ResourcesTranslated) {//add by zhuce
+	PAGED_CODE();
+	UNREFERENCED_PARAMETER(Resources);
+	TraceVerbose(DBG_INIT, "-->Entry");
+	DeviceContext* ctx = GetDeviceContext(device);
+
+	PXDMA_DEVICE xdma = &(ctx->xdma);
+	NTSTATUS status = XDMA_DeviceOpen(device, xdma, Resources, ResourcesTranslated);
+	if (!NT_SUCCESS(status)) {
+		TraceError(DBG_INIT, "XDMA_DeviceOpen failed: %!STATUS!", status);
+		return status;
+	}
+
+	// get poll mode parameter and configure engines as poll mode if needed
+	ULONG pollMode = 0;
+	status = GetPollModeParameter(&pollMode);
+	if (!NT_SUCCESS(status)) {
+		TraceError(DBG_INIT, "GetPollModeParameter failed: %!STATUS!", status);
+		return status;
+	}
+	for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
+		for (ULONG ch = 0; ch < XDMA_MAX_NUM_CHANNELS; ch++) {
+			XDMA_ENGINE* engine = &(xdma->engines[ch][dir]);
+			XDMA_EngineSetPollMode(engine, (BOOLEAN)pollMode);
+		}
+	}
+
+	// create a queue for each engine
+	for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
+		for (ULONG ch = 0; ch < XDMA_MAX_NUM_CHANNELS; ch++) {
+			XDMA_ENGINE* engine = &(xdma->engines[ch][dir]);
+			if (engine->enabled == TRUE) {
+				status = EngineCreateQueue(device, engine, &(ctx->engineQueue[dir][ch]));
+				if (!NT_SUCCESS(status)) {
+					TraceError(DBG_INIT, "EngineCreateQueue() failed: %!STATUS!", status);
+					return status;
+				}
+			}
+		}
+	}
+
+	for (UINT i = 0; i < XDMA_MAX_USER_IRQ; ++i) {
+		KeInitializeEvent(&ctx->eventSignals[i], NotificationEvent, FALSE);
+		XDMA_UserIsrRegister(xdma, i, HandleUserEvent, &ctx->eventSignals[i]);
+	}
+
+	TraceVerbose(DBG_INIT, "<--Exit returning %!STATUS!", status);
+	return status;
+}
+
+static NTSTATUS EvtDevicePrepareHardwareAdma(IN WDFDEVICE device, IN WDFCMRESLIST Resources,
+											 IN WDFCMRESLIST ResourcesTranslated) {//add by zhuce
+	PAGED_CODE();
+	UNREFERENCED_PARAMETER(Resources);
+	TraceVerbose(DBG_INIT, "-->Entry");
+	DeviceContext* ctx = GetDeviceContext(device);
+
+	PADMA_DEVICE adma = &(ctx->adma);
+	NTSTATUS status = ADMA_DeviceOpen(device, adma, Resources, ResourcesTranslated);
+	if (!NT_SUCCESS(status)) {
+		TraceError(DBG_INIT, "XDMA_DeviceOpen failed: %!STATUS!", status);
+		return status;
+	}
+
+	// create a queue for each engine
+	for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
+		for (ULONG ch = 0; ch < ADMA_MAX_NUM_CHANNELS; ch++) {
+			ADMA_ENGINE* engine = &(adma->engines[ch][dir]);
+			if (engine->enabled == TRUE) {
+				status = EngineCreateQueueADMA(device, engine, &(ctx->engineQueue[dir][ch]));
+				if (!NT_SUCCESS(status)) {
+					TraceError(DBG_INIT, "EngineCreateQueueADMA() failed: %!STATUS!", status);
+					return status;
+				}
+			}
+		}
+	}
+
+	TraceVerbose(DBG_INIT, "<--Exit returning %!STATUS!", status);
+	return status;
+}
 // Initialize device hardware and host buffers.
 // Called by plug and play manager
 NTSTATUS EvtDevicePrepareHardware(IN WDFDEVICE device, IN WDFCMRESLIST Resources,
@@ -214,45 +333,19 @@ NTSTATUS EvtDevicePrepareHardware(IN WDFDEVICE device, IN WDFCMRESLIST Resources
     TraceVerbose(DBG_INIT, "-->Entry");
 
     DeviceContext* ctx = GetDeviceContext(device);
-    PXDMA_DEVICE xdma = &(ctx->xdma);
-    NTSTATUS status = XDMA_DeviceOpen(device, xdma, Resources, ResourcesTranslated);
-    if (!NT_SUCCESS(status)) {
-        TraceError(DBG_INIT, "XDMA_DeviceOpen failed: %!STATUS!", status);
-        return status;
-    }
-
-    // get poll mode parameter and configure engines as poll mode if needed
-    ULONG pollMode = 0;
-    status = GetPollModeParameter(&pollMode);
-    if (!NT_SUCCESS(status)) {
-        TraceError(DBG_INIT, "GetPollModeParameter failed: %!STATUS!", status);
-        return status;
-    }
-    for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
-        for (ULONG ch = 0; ch < XDMA_MAX_NUM_CHANNELS; ch++) {
-            XDMA_ENGINE* engine = &(xdma->engines[ch][dir]);
-            XDMA_EngineSetPollMode(engine, (BOOLEAN)pollMode);
-        }
-    }
-
-    // create a queue for each engine
-    for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
-        for (ULONG ch = 0; ch < XDMA_MAX_NUM_CHANNELS; ch++) {
-            XDMA_ENGINE* engine = &(xdma->engines[ch][dir]);
-            if (engine->enabled == TRUE) {
-                status = EngineCreateQueue(device, engine, &(ctx->engineQueue[dir][ch]));
-                if (!NT_SUCCESS(status)) {
-                    TraceError(DBG_INIT, "EngineCreateQueue() failed: %!STATUS!", status);
-                    return status;
-                }
-            }
-        }
-    }
-
-    for (UINT i = 0; i < XDMA_MAX_USER_IRQ; ++i) {
-        KeInitializeEvent(&ctx->eventSignals[i], NotificationEvent, FALSE);
-        XDMA_UserIsrRegister(xdma, i, HandleUserEvent, &ctx->eventSignals[i]);
-    }
+	ULONG xadmaType = XADMA_TYPE_UNKNOWN;//add by zhuce
+	GetXadmaTypeParameter(&xadmaType);//add by zhuce
+	if (xadmaType >= XADMA_TYPE_UNKNOWN) {//add by zhuce
+		TraceError(DBG_INIT, "GetXadmaTypeParameter failed: %!STATUS!", STATUS_INVALID_PARAMETER);
+		return STATUS_INVALID_PARAMETER;
+	}
+	ctx->xadmaType = (XADMA_TYPE)xadmaType;//add by zhuce
+	NTSTATUS status = STATUS_SUCCESS;//add by zhuce
+	if (ctx->xadmaType == XADMA_TYPE_XDMA) {//add by zhuce
+		status = EvtDevicePrepareHardwareXdma(device, Resources, ResourcesTranslated);
+	} else if (ctx->xadmaType == XADMA_TYPE_ADMA) {//add by zhuce
+		status = EvtDevicePrepareHardwareAdma(device, Resources, ResourcesTranslated);
+	}
 
     TraceVerbose(DBG_INIT, "<--Exit returning %!STATUS!", status);
     return status;
@@ -267,7 +360,13 @@ NTSTATUS EvtDeviceReleaseHardware(IN WDFDEVICE Device, IN WDFCMRESLIST Resources
     
     DeviceContext* ctx = GetDeviceContext(Device);
     if (ctx != NULL) {
-        XDMA_DeviceClose(&ctx->xdma);
+		if (ctx->xadmaType == XADMA_TYPE_XDMA) {//add by zhuce
+			XDMA_DeviceClose(&ctx->xdma);
+		}
+		else if (ctx->xadmaType == XADMA_TYPE_ADMA) {//add by zhuce
+			ADMA_DeviceClose(&ctx->adma);
+		}
+        //XDMA_DeviceClose(&ctx->xdma);
     }
 
     TraceVerbose(DBG_INIT, "exit");
@@ -317,4 +416,44 @@ NTSTATUS EngineCreateQueue(WDFDEVICE device, XDMA_ENGINE* engine, WDFQUEUE* queu
     context->engine = engine;
 
     return status;
+}
+
+NTSTATUS EngineCreateQueueADMA(WDFDEVICE device, ADMA_ENGINE* engine, WDFQUEUE* queue)
+// Create a WDF IO queue for a DMA engine
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	WDF_IO_QUEUE_CONFIG config;
+	WDF_OBJECT_ATTRIBUTES attribs;
+	PQUEUE_CONTEXT context;
+
+	PAGED_CODE();
+
+	// engine queue is sequential
+	WDF_IO_QUEUE_CONFIG_INIT(&config, WdfIoQueueDispatchSequential);
+
+	ASSERTMSG("direction is neither H2C nor C2H!", (engine->dir == C2H) || (engine->dir == H2C));
+	if (engine->dir == H2C) { // callback handler for write requests
+		config.EvtIoWrite = EvtIoWriteDma;
+		TraceInfo(DBG_INIT, "EvtIoWrite=EvtIoWriteDma");
+	}
+	else if (engine->dir == C2H) { // callback handler for read requests
+		config.EvtIoRead = EvtIoReadDma;
+		TraceInfo(DBG_INIT, "EvtIoRead=EvtIoReadDma");
+	}
+
+	// serialize all callbacks related to this queue. see ref [2]
+	WDF_OBJECT_ATTRIBUTES_INIT(&attribs);
+	attribs.SynchronizationScope = WdfSynchronizationScopeQueue;
+	WDF_OBJECT_ATTRIBUTES_SET_CONTEXT_TYPE(&attribs, QUEUE_CONTEXT);
+	status = WdfIoQueueCreate(device, &config, &attribs, queue);
+	if (!NT_SUCCESS(status)) {
+		TraceError(DBG_INIT, "WdfIoQueueCreate failed %d", status);
+		return status;
+	}
+
+	// store arguments into queue context
+	context = GetQueueContext(*queue);
+	context->engine = engine;
+
+	return status;
 }

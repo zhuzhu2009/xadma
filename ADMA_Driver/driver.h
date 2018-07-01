@@ -22,11 +22,22 @@
 #pragma once
 
 #include "xdma.h"
+#include "adma.h"
+
+typedef enum {//add by zhuce
+	XADMA_TYPE_XDMA = 0,
+	XADMA_TYPE_ADMA,
+	XADMA_TYPE_XAXIDMA,
+	XADMA_TYPE_XAXICDMA,
+	XADMA_TYPE_UNKNOWN,
+} XADMA_TYPE;
 
 typedef struct DeviceContext_t {
     XDMA_DEVICE xdma;
     WDFQUEUE engineQueue[2][XDMA_MAX_NUM_CHANNELS];
     KEVENT eventSignals[XDMA_MAX_USER_IRQ];
 
+	XADMA_TYPE xadmaType;
+	ADMA_DEVICE adma;
 }DeviceContext;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DeviceContext, GetDeviceContext)
