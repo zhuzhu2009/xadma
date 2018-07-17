@@ -119,6 +119,9 @@ static void EngineConfigureInterrupt(IN OUT ADMA_ENGINE *engine, IN UINT index) 
 
     TraceVerbose(DBG_INIT, "engineIrqBitMask=0x%08x, intEnableMask=0x%08x",
                  engine->irqBitMask, engine->regs->intEnableMask);
+#else
+	UNREFERENCED_PARAMETER(engine);
+	UNREFERENCED_PARAMETER(index);
 #endif
 }
 
@@ -199,10 +202,13 @@ static void EngineProcessTransfer(IN ADMA_ENGINE *engine)
         size_t wbBufferLength = WdfCommonBufferGetLength(engine->pollWbBuffer);
         RtlZeroMemory(wbBuffer, wbBufferLength);
     }
+#else
+	UNREFERENCED_PARAMETER(engine);
 #endif
 }
 
-static void DumpDescriptor(IN const DMA_DESCRIPTOR* const desc) {
+static void DumpDescriptor(IN const ADMA_DESCRIPTOR* const desc) {
+#if 0
 #if DBG
     TraceVerbose(DBG_DESC, "descriptor={.control=0x%08X, .numBytes=%u, srcAddr=0x%08X%08X, .dstAddr=0x%08X%08X, nextAddr=0x%08X%08X}",
                  desc->control, desc->numBytes,
@@ -211,6 +217,9 @@ static void DumpDescriptor(IN const DMA_DESCRIPTOR* const desc) {
                  desc->nextHi, desc->nextLo);
 #else 
     UNREFERENCED_PARAMETER(desc);
+#endif
+#else
+	UNREFERENCED_PARAMETER(desc);
 #endif
 }
 
@@ -242,8 +251,11 @@ static BOOLEAN DescriptorIsAligned(IN ADMA_ENGINE *engine, IN ADMA_DESCRIPTOR *d
             return FALSE;
         }
     }
+#else
+	UNREFERENCED_PARAMETER(engine);
+	UNREFERENCED_PARAMETER(desc);
+	return TRUE;
 #endif
-    return TRUE;
 }
 
 static void OptimizeDescriptors(IN ADMA_ENGINE *engine, IN ADMA_DESCRIPTOR * const desc,
@@ -296,6 +308,10 @@ static void OptimizeDescriptors(IN ADMA_ENGINE *engine, IN ADMA_DESCRIPTOR * con
             nextAdjMax = adjMax;
         }
     }
+#else
+	UNREFERENCED_PARAMETER(engine);
+	UNREFERENCED_PARAMETER(desc);
+	UNREFERENCED_PARAMETER(numDesc);
 #endif
 }
 
@@ -442,7 +458,7 @@ BOOLEAN ADMA_EngineProgramDma(IN WDFDMATRANSACTION Transaction, IN WDFDEVICE Dev
     // get virtual and physical pointers to descriptor buffer
     ADMA_ENGINE * engine = (ADMA_ENGINE*)context;
     ADMA_DESCRIPTOR *descriptor = (ADMA_DESCRIPTOR*)((PUCHAR)WdfCommonBufferGetAlignedVirtualAddress(engine->descBuffer) + ADMA_DESCRIPTOR_OFFSET);
-    PHYSICAL_ADDRESS descBufferLA = WdfCommonBufferGetAlignedLogicalAddress(engine->descBuffer);
+    //PHYSICAL_ADDRESS descBufferLA = WdfCommonBufferGetAlignedLogicalAddress(engine->descBuffer);
 
     // offset into the transaction (if it is split)
     deviceOffset += WdfDmaTransactionGetBytesTransferred(Transaction);
@@ -587,7 +603,7 @@ char* DirectionToString(const DirToDev dir) {
 static NTSTATUS EngineCreateRingBuffer(IN ADMA_ENGINE* engine) {
 
     // create dma result buffer
-    size_t resultBufferSize = (ADMA_MAX_TRANSFER_SIZE / PAGE_SIZE + 2) * sizeof(DMA_RESULT);
+    size_t resultBufferSize = (ADMA_MAX_TRANSFER_SIZE / PAGE_SIZE + 2) * sizeof(ADMA_RESULT);
     NTSTATUS status = WdfCommonBufferCreate(engine->parentDevice->dmaEnabler, resultBufferSize,
                                             WDF_NO_OBJECT_ATTRIBUTES, &engine->ring.results);
     if (!NT_SUCCESS(status)) {
@@ -701,6 +717,7 @@ static UINT EngineProcessRing(IN ADMA_ENGINE *engine) {
 
     return eopCount;
 #else
+	UNREFERENCED_PARAMETER(engine);
 	return 0;
 #endif
 }
@@ -771,6 +788,8 @@ static void EngineRingProgramDma(IN ADMA_ENGINE* engine) {
     EngineStart(engine);
 
     MemoryBarrier();
+#else
+	UNREFERENCED_PARAMETER(engine);
 #endif
 }
 
@@ -782,6 +801,8 @@ static void EngineClearDmaResults(IN ADMA_ENGINE *engine) {
         results[i].status = 0;
         results[i].length = 0;
     }
+#else
+	UNREFERENCED_PARAMETER(engine);
 #endif
 }
 
@@ -882,6 +903,11 @@ NTSTATUS EngineRingCopyBytesToMemory(IN ADMA_ENGINE *engine, WDFMEMORY outputMem
 ErrorExit:
     return status;
 #else
+	UNREFERENCED_PARAMETER(engine);
+	UNREFERENCED_PARAMETER(outputMem);
+	UNREFERENCED_PARAMETER(length);
+	UNREFERENCED_PARAMETER(timeout);
+	UNREFERENCED_PARAMETER(bytesRead);
 	return 0;
 #endif
 }

@@ -117,6 +117,8 @@ static NTSTATUS MapBARs(IN PADMA_DEVICE adma, IN WDFCMRESLIST ResourcesTranslate
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
 
+		TraceInfo(DBG_INIT, "MM BAR %d type %d", i, resource->Type);
+
         if (resource->Type == CmResourceTypeMemory) {
             adma->barLength[adma->numBars] = resource->u.Memory.Length;
             adma->bar[adma->numBars] = MmMapIoSpace(resource->u.Memory.Start,
@@ -125,11 +127,60 @@ static NTSTATUS MapBARs(IN PADMA_DEVICE adma, IN WDFCMRESLIST ResourcesTranslate
                 TraceError(DBG_INIT, "MmMapIoSpace returned NULL! for BAR%u", adma->numBars);
                 return STATUS_DEVICE_CONFIGURATION_ERROR;
             }
-            TraceInfo(DBG_INIT, "MM BAR %d (addr:0x%lld, length:%u) mapped at 0x%08p",
+            TraceInfo(DBG_INIT, "MM BAR %d (addr:0x%llx, length:%u) mapped at 0x%08p",
                       adma->numBars, resource->u.Memory.Start.QuadPart,
                       resource->u.Memory.Length, adma->bar[adma->numBars]);
             adma->numBars++;
-        }
+		} else if (resource->Type == CmResourceTypeMemoryLarge) {
+			if (resource->Flags & CM_RESOURCE_MEMORY_LARGE_40) {
+				PHYSICAL_ADDRESS start;
+				start.QuadPart = resource->u.Memory40.Start.QuadPart;
+				adma->barLength[adma->numBars] = resource->u.Memory40.Length40 << 8;
+#if 0
+				adma->bar[adma->numBars] = MmMapIoSpace(resource->u.Memory40.Start,
+														resource->u.Memory40.Length40 << 8, MmNonCached);
+#else
+				start.QuadPart += 0x80000000LL;//offset to 2GB, customer design is stupid, I'll use only 2GB~2GB+64KB(0x10000)
+				adma->bar[adma->numBars] = MmMapIoSpace(start,
+					0x10000, MmNonCached);
+#endif
+				if (adma->bar[adma->numBars] == NULL) {
+					TraceError(DBG_INIT, "MmMapIoSpace returned NULL! for BAR%u", adma->numBars);
+					return STATUS_DEVICE_CONFIGURATION_ERROR;
+				}
+				TraceInfo(DBG_INIT, "MM40 BAR %d (addr:0x%llx, length:%u) mapped at 0x%08p",
+					adma->numBars, resource->u.Memory40.Start.QuadPart,
+					resource->u.Memory40.Length40, adma->bar[adma->numBars]);
+			} else if (resource->Flags & CM_RESOURCE_MEMORY_LARGE_48) {
+				adma->barLength[adma->numBars] = resource->u.Memory48.Length48 << 16;
+#if 0
+				adma->bar[adma->numBars] = MmMapIoSpace(resource->u.Memory48.Start,
+														resource->u.Memory48.Length48 << 16, MmNonCached);
+#endif
+				if (adma->bar[adma->numBars] == NULL) {
+					TraceError(DBG_INIT, "MmMapIoSpace returned NULL! for BAR%u", adma->numBars);
+					return STATUS_DEVICE_CONFIGURATION_ERROR;
+				}
+				TraceInfo(DBG_INIT, "MM48 BAR %d (addr:0x%llx, length:%u) mapped at 0x%08p",
+					adma->numBars, resource->u.Memory48.Start.QuadPart,
+					resource->u.Memory48.Length48 << 16, adma->bar[adma->numBars]);
+			} else if (resource->Flags & CM_RESOURCE_MEMORY_LARGE_64) {
+				adma->barLength[adma->numBars] = resource->u.Memory64.Length64/* << 32*/;
+#if 0
+				adma->bar[adma->numBars] = MmMapIoSpace(resource->u.Memory64.Start,
+														resource->u.Memory64.Length64 << 32, MmNonCached);
+#endif
+				if (adma->bar[adma->numBars] == NULL) {
+					TraceError(DBG_INIT, "MmMapIoSpace returned NULL! for BAR%u", adma->numBars);
+					return STATUS_DEVICE_CONFIGURATION_ERROR;
+				}
+				TraceInfo(DBG_INIT, "MM64 BAR %d (addr:0x%llx, length:%u) mapped at 0x%08p",
+					adma->numBars, resource->u.Memory64.Start.QuadPart,
+					resource->u.Memory64.Length64/* << 32*/, adma->bar[adma->numBars]);
+			}
+
+			adma->numBars++;
+		}
     }
     return STATUS_SUCCESS;
 }
@@ -199,7 +250,9 @@ NTSTATUS ADMA_DeviceOpen(WDFDEVICE wdfDevice,
                          WDFCMRESLIST ResourcesRaw,
                          WDFCMRESLIST ResourcesTranslated) {
 
-    NTSTATUS status = STATUS_INTERNAL_ERROR;
+	UNREFERENCED_PARAMETER(ResourcesRaw);
+
+	NTSTATUS status = STATUS_INTERNAL_ERROR;
 
     DeviceDefaultInitialize(adma);
 
@@ -212,6 +265,8 @@ NTSTATUS ADMA_DeviceOpen(WDFDEVICE wdfDevice,
         return status;
     }
 
+	status = STATUS_SUCCESS;
+
     // identify BAR configuration - user(optional), config, bypass(optional)
     status = IdentifyBars(adma);
     if (!NT_SUCCESS(status)) {
@@ -221,20 +276,20 @@ NTSTATUS ADMA_DeviceOpen(WDFDEVICE wdfDevice,
 
     // get the module offsets in config BAR
     GetRegisterModules(adma);
-#if 0 //adma hasn't this feature, add by zhuce
+/* //adma hasn't this feature, add by zhuce
     // Confirm ADMA IP core version matches this driver
     UINT version = GetVersion(adma);
     if (version != v2017_1) {
         TraceWarning(DBG_INIT, "Version mismatch! Expected 2017.1 (0x%x) but got (0x%x)",
                      v2017_1, version);
     }
-#endif
+*/
     status = SetupInterrupts(adma, ResourcesRaw, ResourcesTranslated);
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "SetupInterrupts failed: %!STATUS!", status);
         return status;
     }
-
+#if 1
     // WDF DMA Enabler - at least 32 bytes alignment for decriport table Page81, Page53 4 bytes alignment
 	WdfDeviceSetAlignmentRequirement(adma->wdfDevice, FILE_32_BYTE_ALIGNMENT); //add by zhuce 
     WDF_DMA_ENABLER_CONFIG dmaConfig;
@@ -245,13 +300,16 @@ NTSTATUS ADMA_DeviceOpen(WDFDEVICE wdfDevice,
         return status;
     }
 
+	TraceVerbose(DBG_INIT, "<--Not Probe Engines Exit returning %!STATUS!", status);
+	return status;
+
     // Detect and initialize engines configured in HW IP 
     status = ProbeEngines(adma);
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "ProbeEngines failed: %!STATUS!", status);
         return status;
     }
-
+#endif
     return status;
 }
 

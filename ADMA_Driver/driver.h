@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include "xdma.h"
 #include "adma.h"
 
 typedef enum {//add by zhuce
@@ -33,9 +32,9 @@ typedef enum {//add by zhuce
 } XADMA_TYPE;
 
 typedef struct DeviceContext_t {
-    XDMA_DEVICE xdma;
-    WDFQUEUE engineQueue[2][XDMA_MAX_NUM_CHANNELS];
-    KEVENT eventSignals[XDMA_MAX_USER_IRQ];
+    //XDMA_DEVICE xdma;
+    WDFQUEUE engineQueue[2][ADMA_MAX_NUM_CHANNELS];
+    KEVENT eventSignals[ADMA_MAX_USER_IRQ];
 
 	XADMA_TYPE xadmaType;
 	ADMA_DEVICE adma;

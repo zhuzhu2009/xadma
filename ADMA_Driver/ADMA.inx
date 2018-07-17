@@ -1,6 +1,6 @@
 ;/*++
 ;
-;Copyright (c) Xilinx  All rights reserved.
+;Copyright (c) Qinger  All rights reserved.
 ;
 ;   THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY
 ;   KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
@@ -45,7 +45,7 @@ HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;WD)" ;Allow generic all ac
 ExcludeFromSelect = *
 
 [Manufacturer]
-%Companyname%=Xilinx,NT$ARCH$
+%Companyname%=Qinger,NT$ARCH$
 
 [SourceDisksFiles]
 ADMA.sys    = 1
@@ -55,7 +55,7 @@ WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll = 1 ; make sure the number matches wi
 1="ADMA Install Disk",
 
 ; For XP and later
-[Xilinx.NT$ARCH$]
+[Qinger.NT$ARCH$]
 ; DisplayName           Section			DeviceId
 ; -----------           -------			--------
 %ADMA.DRVDESC%=			ADMA_Inst,		PCI\VEN_1172&DEV_e001

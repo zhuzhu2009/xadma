@@ -17,7 +17,7 @@
 
 // ========================= declarations =================================================
 
-#define ADMA_MAX_USER_IRQ (16)
+#define ADMA_MAX_USER_IRQ (6)
 #define ADMA_MAX_NUM_IRQ (ADMA_MAX_USER_IRQ + ADMA_MAX_CHAN_IRQ)
 
 typedef struct _IRQ_CONTEXT {

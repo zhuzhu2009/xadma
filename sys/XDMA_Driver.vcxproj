@@ -223,12 +223,14 @@
     <RunCodeAnalysis>true</RunCodeAnalysis>
     <TargetName>XDMA</TargetName>
     <LibraryPath>$(ProjectDir)..\klibxdma\x64\Debug\;$(LibraryPath)</LibraryPath>
+    <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Win10_Debug|x64'">
     <RunCodeAnalysis>true</RunCodeAnalysis>
     <OutDir>$(ProjectDir)..\build\$(Platform)\$(ProjectName)\$(ConfigurationName)\</OutDir>
     <IntDir>$(ProjectDir)..\build_tmp\$(ProjectName)\$(Platform)\$(ConfigurationName)\</IntDir>
     <TargetName>XDMA</TargetName>
+    <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Win7_Release|x64'">
     <OutDir>$(ProjectDir)..\build\$(Platform)\$(ProjectName)\$(ConfigurationName)\</OutDir>

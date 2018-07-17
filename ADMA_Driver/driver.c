@@ -1,5 +1,5 @@
 /*
-* XDMA Device Driver for Windows
+* ADMA Device Driver for Windows
 * ===============================
 *
 * Copyright 2017 Xilinx Inc.
@@ -12,7 +12,7 @@
 *
 * Description:
 * ------------
-* This is a sample driver for the Xilinx Inc. 'DMA/Bridge Subsystem for PCIe v3.0' (XDMA) IP.
+* This is a sample driver for the Xilinx Inc. 'DMA/Bridge Subsystem for PCIe v3.0' (ADMA) IP.
 *
 * References:
 * -----------
@@ -41,7 +41,7 @@ EVT_WDF_DEVICE_CONTEXT_CLEANUP      EvtDeviceCleanup;
 EVT_WDF_DEVICE_PREPARE_HARDWARE     EvtDevicePrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE     EvtDeviceReleaseHardware;
 
-static NTSTATUS EngineCreateQueue(WDFDEVICE device, XDMA_ENGINE* engine, WDFQUEUE* queue);
+static NTSTATUS EngineCreateQueue(WDFDEVICE device, ADMA_ENGINE* engine, WDFQUEUE* queue);
 
 // Mark these functions as pageable code
 #ifdef ALLOC_PRAGMA
@@ -216,10 +216,12 @@ NTSTATUS EvtDevicePrepareHardware(IN WDFDEVICE device, IN WDFCMRESLIST Resources
 	PADMA_DEVICE adma = &(ctx->adma);
 	NTSTATUS status = ADMA_DeviceOpen(device, adma, Resources, ResourcesTranslated);
 	if (!NT_SUCCESS(status)) {
-		TraceError(DBG_INIT, "XDMA_DeviceOpen failed: %!STATUS!", status);
+		TraceError(DBG_INIT, "ADMA_DeviceOpen failed: %!STATUS!", status);
 		return status;
 	}
-
+	TraceVerbose(DBG_INIT, "<--Test Exit returning %!STATUS!", status);
+	return status;
+#if 0
 	// create a queue for each engine
 	for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
 		for (ULONG ch = 0; ch < ADMA_MAX_NUM_CHANNELS; ch++) {
@@ -236,6 +238,7 @@ NTSTATUS EvtDevicePrepareHardware(IN WDFDEVICE device, IN WDFCMRESLIST Resources
 
 	TraceVerbose(DBG_INIT, "<--Exit returning %!STATUS!", status);
 	return status;
+#endif
 }
 
 // Unmap PCIe resources
@@ -247,7 +250,7 @@ NTSTATUS EvtDeviceReleaseHardware(IN WDFDEVICE Device, IN WDFCMRESLIST Resources
     
     DeviceContext* ctx = GetDeviceContext(Device);
     if (ctx != NULL) {
-		ADMA_DeviceClose(&ctx->xdma);
+		ADMA_DeviceClose(&ctx->adma);
     }
 
     TraceVerbose(DBG_INIT, "exit");

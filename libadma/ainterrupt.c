@@ -237,9 +237,9 @@ static NTSTATUS SetupMultiMsiInterrupts(IN PADMA_DEVICE adma, IN WDFCMRESLIST Re
     PCM_PARTIAL_RESOURCE_DESCRIPTOR resourceRaw;
     NTSTATUS status = STATUS_INTERNAL_ERROR;
     ULONG numResources = WdfCmResourceListGetCount(ResourcesTranslated);
-
+#if 0
     ASSERT(adma->interruptRegs != NULL);
-
+#endif
     for (UINT i = 0; i < numResources; i++) {
         resource = WdfCmResourceListGetDescriptor(ResourcesTranslated, i);
         resourceRaw = WdfCmResourceListGetDescriptor(ResourcesRaw, i);
@@ -251,8 +251,9 @@ static NTSTATUS SetupMultiMsiInterrupts(IN PADMA_DEVICE adma, IN WDFCMRESLIST Re
         resourceRaw->u.MessageInterrupt.Raw.MessageCount = numVectors;
         // individual resource/msgId for each user interrupt (0-15)
         for (int n = 0; n < ADMA_MAX_USER_IRQ; n++) {
-            status = SetupUserInterrupt(adma, 0, resourceRaw, resource);
-            if (!NT_SUCCESS(status)) {
+//            status = SetupUserInterrupt(adma, 0, resourceRaw, resource);
+			status = SetupUserInterrupt(adma, n, resourceRaw, resource);//fixed by zc
+			if (!NT_SUCCESS(status)) {
                 TraceError(DBG_INIT, "Error in setup user interrupt: %!STATUS!", status);
                 return status;
             }
@@ -270,6 +271,7 @@ static NTSTATUS SetupMultiMsiInterrupts(IN PADMA_DEVICE adma, IN WDFCMRESLIST Re
         break;
     }
 
+#if 0
     TraceVerbose(DBG_INIT, "User interrupt msg id = 0");
     TraceVerbose(DBG_INIT, "Channel interrupt msg ids = H2C[1,2,3,4], C2H[5,6,7,8]");
 
@@ -282,7 +284,7 @@ static NTSTATUS SetupMultiMsiInterrupts(IN PADMA_DEVICE adma, IN WDFCMRESLIST Re
     // next 8 are dma channel
     adma->interruptRegs->channelVector[0] = BuildVectorReg(16, 17, 18, 19);
     adma->interruptRegs->channelVector[1] = BuildVectorReg(20, 21, 22, 23);
-
+#endif
     return status;
 }
 

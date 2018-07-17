@@ -251,8 +251,9 @@ static NTSTATUS SetupMultiMsiInterrupts(IN PXDMA_DEVICE xdma, IN WDFCMRESLIST Re
         resourceRaw->u.MessageInterrupt.Raw.MessageCount = numVectors;
         // individual resource/msgId for each user interrupt (0-15)
         for (int n = 0; n < XDMA_MAX_USER_IRQ; n++) {
-            status = SetupUserInterrupt(xdma, 0, resourceRaw, resource);
-            if (!NT_SUCCESS(status)) {
+			//status = SetupUserInterrupt(xdma, 0, resourceRaw, resource);
+			status = SetupUserInterrupt(xdma, n, resourceRaw, resource);//fixed by zc
+			if (!NT_SUCCESS(status)) {
                 TraceError(DBG_INIT, "Error in setup user interrupt: %!STATUS!", status);
                 return status;
             }
