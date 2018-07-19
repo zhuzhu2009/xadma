@@ -249,21 +249,21 @@ static NTSTATUS SetupMultiMsiInterrupts(IN PADMA_DEVICE adma, IN WDFCMRESLIST Re
         }
         resource->u.MessageInterrupt.Raw.MessageCount = numVectors;
         resourceRaw->u.MessageInterrupt.Raw.MessageCount = numVectors;
+        // individual resource/msgId for each channel interrupt (H2C 0-3 and C2H 0-3)
+        for (int n = 0; n < (2 * ADMA_MAX_NUM_CHANNELS); n++) {
+            status = SetupChannelInterrupt(adma, n, resourceRaw, resource);
+            if (!NT_SUCCESS(status)) {
+                TraceError(DBG_INIT, "Error in setup channel interrupt: %!STATUS!", status);
+                return status;
+            }
+        }
+
         // individual resource/msgId for each user interrupt (0-15)
         for (int n = 0; n < ADMA_MAX_USER_IRQ; n++) {
 //            status = SetupUserInterrupt(adma, 0, resourceRaw, resource);
 			status = SetupUserInterrupt(adma, n, resourceRaw, resource);//fixed by zc
 			if (!NT_SUCCESS(status)) {
                 TraceError(DBG_INIT, "Error in setup user interrupt: %!STATUS!", status);
-                return status;
-            }
-        }
-
-        // individual resource/msgId for each channel interrupt (H2C 0-3 and C2H 0-3)
-        for (int n = 0; n < (2 * ADMA_MAX_NUM_CHANNELS); n++) {
-            status = SetupChannelInterrupt(adma, n, resourceRaw, resource);
-            if (!NT_SUCCESS(status)) {
-                TraceError(DBG_INIT, "Error in setup channel interrupt: %!STATUS!", status);
                 return status;
             }
         }
@@ -429,18 +429,29 @@ VOID EvtInterruptDpc(IN WDFINTERRUPT interrupt, IN WDFOBJECT device)
 NTSTATUS EvtChannelInterruptEnable(IN WDFINTERRUPT Interrupt, IN WDFDEVICE device) {
     UNREFERENCED_PARAMETER(device);
     PIRQ_CONTEXT irq = GetIrqContext(Interrupt);
+#if 0
     EXPECT(irq != NULL);
     EXPECT(irq->regs != NULL);
     EngineEnableInterrupt(irq->engine);
-    return STATUS_SUCCESS;
+#endif
+	if (!irq->engine) {
+		TraceError(DBG_IRQ, "engine ptr is NULL!");
+	} else {
+		TraceVerbose(DBG_IRQ, "%s_%u enabled interrupt",
+			DirectionToString(irq->engine->dir), irq->engine->channel);
+	}
+	return STATUS_SUCCESS;
 }
 
 NTSTATUS EvtChannelInterruptDisable(IN WDFINTERRUPT Interrupt, IN WDFDEVICE device) {
     UNREFERENCED_PARAMETER(device);
     PIRQ_CONTEXT irq = GetIrqContext(Interrupt);
+	UNREFERENCED_PARAMETER(irq);
+#if 0
     EXPECT(irq != NULL);
     EXPECT(irq->regs != NULL);
     EngineDisableInterrupt(irq->engine);
+#endif
     return STATUS_SUCCESS;
 }
 
@@ -464,10 +475,10 @@ VOID EvtChannelInterruptDpc(IN WDFINTERRUPT interrupt, IN WDFOBJECT device)
 {
     UNREFERENCED_PARAMETER(device);
     PIRQ_CONTEXT irq = GetIrqContext(interrupt);
-
+#if 0
     // do engine specific work (either EngineProcessTransfer (MM) or EngineProcessRing (ST))
     irq->engine->work(irq->engine);
-
+#endif
     // reenable interrupt for this dma engine
     WdfInterruptAcquireLock(interrupt);
     EngineEnableInterrupt(irq->engine);
@@ -477,9 +488,11 @@ VOID EvtChannelInterruptDpc(IN WDFINTERRUPT interrupt, IN WDFOBJECT device)
 NTSTATUS EvtUserInterruptEnable(IN WDFINTERRUPT Interrupt, IN WDFDEVICE device) {
     UNREFERENCED_PARAMETER(device);
     PIRQ_CONTEXT irq = GetIrqContext(Interrupt);
+#if 0
     EXPECT(irq != NULL);
     EXPECT(irq->regs != NULL);
     irq->regs->userIntEnableW1S = BIT_N(irq->eventId); // message id and event id are same
+#endif
     TraceInfo(DBG_IRQ, "event_%u enabled interrupt", irq->eventId);
     return STATUS_SUCCESS;
 }
@@ -487,9 +500,11 @@ NTSTATUS EvtUserInterruptEnable(IN WDFINTERRUPT Interrupt, IN WDFDEVICE device) 
 NTSTATUS EvtUserInterruptDisable(IN WDFINTERRUPT Interrupt, IN WDFDEVICE device) {
     UNREFERENCED_PARAMETER(device);
     PIRQ_CONTEXT irq = GetIrqContext(Interrupt);
+#if 0
     EXPECT(irq != NULL);
     EXPECT(irq->regs != NULL);
     irq->regs->userIntEnableW1C = BIT_N(irq->eventId); // message id and event id are same
+#endif
     TraceInfo(DBG_IRQ, "event_%u disabled interrupt", irq->eventId);
     return STATUS_SUCCESS;
 }
@@ -497,10 +512,13 @@ NTSTATUS EvtUserInterruptDisable(IN WDFINTERRUPT Interrupt, IN WDFDEVICE device)
 BOOLEAN EvtUserInterruptIsr(IN WDFINTERRUPT Interrupt, IN ULONG MessageID) {
     TraceInfo(DBG_IRQ, "event_%u occurred!", MessageID);
     IRQ_CONTEXT* irq = GetIrqContext(Interrupt);
+	UNREFERENCED_PARAMETER(irq);
+#if 0
     EXPECT(irq != NULL);
     EXPECT(irq->regs != NULL);
     // disable user event interrupt
     irq->regs->userIntEnableW1C = BIT_N(MessageID); // message id and event id are same
+#endif
     return WdfInterruptQueueDpcForIsr(Interrupt); // schedule deferred work;
 }
 
@@ -516,12 +534,16 @@ VOID EvtUserInterruptDpc(IN WDFINTERRUPT interrupt, IN WDFOBJECT device)
     // message id and event id are same
     if (userEvent->work != NULL) {
         TraceInfo(DBG_IRQ, "event_%d executing work handler", irq->eventId);
+#if 0
         userEvent->work(irq->eventId, userEvent->userData);
+#endif
     }
 
     // reenable interrupt
     WdfInterruptAcquireLock(interrupt);
+#if 0
     irq->regs->userIntEnableW1S = BIT_N(irq->eventId);
+#endif
     WdfInterruptReleaseLock(interrupt);
 }
 
@@ -579,7 +601,9 @@ NTSTATUS ADMA_UserIsrEnable(PADMA_DEVICE adma, ULONG eventId) {
         TraceError(DBG_INIT, "Invalid index! %u", eventId);
         return STATUS_INVALID_PARAMETER;
     }
+#if 0
     adma->interruptRegs->userIntEnableW1S = BIT_N(eventId);
+#endif
     return STATUS_SUCCESS;
 }
 
@@ -590,7 +614,9 @@ NTSTATUS ADMA_UserIsrDisable(PADMA_DEVICE adma, ULONG eventId) {
         TraceError(DBG_INIT, "Invalid index! %u", eventId);
         return STATUS_INVALID_PARAMETER;
     }
+#if 0
     adma->interruptRegs->userIntEnableW1C = BIT_N(eventId);
+#endif
     return STATUS_SUCCESS;
 }
 

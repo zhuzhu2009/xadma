@@ -102,13 +102,13 @@ static void EngineConfigureInterrupt(IN OUT ADMA_ENGINE *engine, IN UINT index) 
     // see Figure 2-4 on page 46 of pcie dma product guide [1]
     engine->irqBitMask = (1 << ADMA_ENG_IRQ_NUM) - 1;
     engine->irqBitMask <<= (index * ADMA_ENG_IRQ_NUM);
-
+#endif
     // bind msi interrupt context with this engine
     if (engine->parentDevice->channelInterrupts[index] != NULL) {
         PIRQ_CONTEXT irqContext = GetIrqContext(engine->parentDevice->channelInterrupts[index]);
         irqContext->engine = engine;
     }
-
+#if 0
     // enable interrupts
     UINT32 regVal = ADMA_CTRL_IE_ALL;
     if ((engine->type == EngineType_ST) && (engine->dir == C2H)) {
@@ -119,9 +119,6 @@ static void EngineConfigureInterrupt(IN OUT ADMA_ENGINE *engine, IN UINT index) 
 
     TraceVerbose(DBG_INIT, "engineIrqBitMask=0x%08x, intEnableMask=0x%08x",
                  engine->irqBitMask, engine->regs->intEnableMask);
-#else
-	UNREFERENCED_PARAMETER(engine);
-	UNREFERENCED_PARAMETER(index);
 #endif
 }
 

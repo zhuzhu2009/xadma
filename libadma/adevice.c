@@ -136,11 +136,12 @@ static NTSTATUS MapBARs(IN PADMA_DEVICE adma, IN WDFCMRESLIST ResourcesTranslate
 				PHYSICAL_ADDRESS start;
 				start.QuadPart = resource->u.Memory40.Start.QuadPart;
 				adma->barLength[adma->numBars] = resource->u.Memory40.Length40 << 8;
+				adma->barLength[adma->numBars] = 0x10000;//we only use part of it because customer design is ugly
 #if 0
 				adma->bar[adma->numBars] = MmMapIoSpace(resource->u.Memory40.Start,
 														resource->u.Memory40.Length40 << 8, MmNonCached);
 #else
-				start.QuadPart += 0x80000000LL;//offset to 2GB, customer design is stupid, I'll use only 2GB~2GB+64KB(0x10000)
+				start.QuadPart += 0x80000000LL;//offset to 2GB, customer design is stupid, I'll use only 2GB~2GB+64KB(0x10000) of 4GB
 				adma->bar[adma->numBars] = MmMapIoSpace(start,
 					0x10000, MmNonCached);
 #endif
@@ -226,9 +227,9 @@ static NTSTATUS IdentifyBars(IN PADMA_DEVICE adma) {
     TraceInfo(DBG_INIT, "%!FUNC!, BAR index: user=%d, control=%d, bypass=%d",
               adma->userBarIdx, adma->configBarIdx, adma->bypassBarIdx);
 #endif
-	adma->userBarIdx = 0; //add by zhuce
-	adma->configBarIdx = 1; //add by zhuce
-	adma->bypassBarIdx = 2; //add by zhuce
+	adma->userBarIdx = 1; //add by zhuce
+	adma->configBarIdx = 0; //add by zhuce
+	adma->bypassBarIdx = -1; //add by zhuce
 
     return STATUS_SUCCESS;
 }
@@ -289,7 +290,7 @@ NTSTATUS ADMA_DeviceOpen(WDFDEVICE wdfDevice,
         TraceError(DBG_INIT, "SetupInterrupts failed: %!STATUS!", status);
         return status;
     }
-#if 1
+
     // WDF DMA Enabler - at least 32 bytes alignment for decriport table Page81, Page53 4 bytes alignment
 	WdfDeviceSetAlignmentRequirement(adma->wdfDevice, FILE_32_BYTE_ALIGNMENT); //add by zhuce 
     WDF_DMA_ENABLER_CONFIG dmaConfig;
@@ -300,16 +301,13 @@ NTSTATUS ADMA_DeviceOpen(WDFDEVICE wdfDevice,
         return status;
     }
 
-	TraceVerbose(DBG_INIT, "<--Not Probe Engines Exit returning %!STATUS!", status);
-	return status;
-
     // Detect and initialize engines configured in HW IP 
     status = ProbeEngines(adma);
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "ProbeEngines failed: %!STATUS!", status);
         return status;
     }
-#endif
+
     return status;
 }
 
