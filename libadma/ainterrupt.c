@@ -250,8 +250,9 @@ static NTSTATUS SetupMultiMsiInterrupts(IN PADMA_DEVICE adma, IN WDFCMRESLIST Re
         resource->u.MessageInterrupt.Raw.MessageCount = numVectors;
         resourceRaw->u.MessageInterrupt.Raw.MessageCount = numVectors;
         // individual resource/msgId for each channel interrupt (H2C 0-3 and C2H 0-3)
-        for (int n = 0; n < (2 * ADMA_MAX_NUM_CHANNELS); n++) {
-            status = SetupChannelInterrupt(adma, n, resourceRaw, resource);
+        //for (int n = 0; n < (2 * ADMA_MAX_NUM_CHANNELS); n++) {
+		for (int n = 0; n < ADMA_MAX_NUM_CHANNELS; n++) {//altera H2C/C2H share a interrupt
+			status = SetupChannelInterrupt(adma, n, resourceRaw, resource);
             if (!NT_SUCCESS(status)) {
                 TraceError(DBG_INIT, "Error in setup channel interrupt: %!STATUS!", status);
                 return status;
