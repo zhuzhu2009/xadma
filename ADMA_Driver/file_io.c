@@ -50,6 +50,8 @@ const static struct {
 } FileNameLUT[] = {
 	{ DEVNODE_TYPE_AH2C,         ADMA_FILE_H2C_0,        0 },
 	{ DEVNODE_TYPE_AC2H,         ADMA_FILE_C2H_0,        0 },
+	{ DEVNODE_TYPE_USER,         ADMA_FILE_USER,         0 },
+	{ DEVNODE_TYPE_CONTROL,      ADMA_FILE_CONTROL,      0 },
 };
 
 static VOID GetDevNodeType(PUNICODE_STRING fileName, PFILE_CONTEXT file, ULONG* index)

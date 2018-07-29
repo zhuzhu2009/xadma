@@ -260,7 +260,422 @@ Return Value:
 
 /*************************************************/
 
-
+NTSTATUS
+CCaptureDevice::
+MapResources(
+	IN PCM_RESOURCE_LIST TranslatedResourceList,
+	IN PCM_RESOURCE_LIST UntranslatedResourceList
+)
+{
+	PAGED_CODE();
+
+	NTSTATUS status = STATUS_SUCCESS;
+	PCM_PARTIAL_RESOURCE_DESCRIPTOR resource;
+	PCM_PARTIAL_RESOURCE_LIST       partialResourceListTranslated;
+	ULONG                           i;
+
+	//
+	// Parameters.StartDevice.AllocatedResourcesTranslated points
+	// to a CM_RESOURCE_LIST describing the hardware resources that
+	// the PnP Manager assigned to the device. This list contains
+	// the resources in translated form. Use the translated resources
+	// to connect the interrupt vector, map I/O space, and map memory.
+	//
+
+	partialResourceListTranslated = &TranslatedResourceList->List[0].PartialResourceList;
+	resource = &partialResourceListTranslated->PartialDescriptors[0];
+
+	for (i = 0; i < partialResourceListTranslated->Count; i++, resource++) {
+
+		switch (resource->Type) {
+
+		case CmResourceTypePort:
+
+			break;
+
+		case CmResourceTypeMemory:
+
+			m_NumberOfBARs++;
+
+			m_DmaBarLen = resource->u.Memory.Length;
+			m_DmaBar = MmMapIoSpace(resource->u.Memory.Start, m_DmaBarLen, MmNonCached);
+			if (m_DmaBar == NULL) {
+				TraceError(DBG_INIT, "MmMapIoSpace returned NULL! for BAR%u", i);
+				return STATUS_DEVICE_CONFIGURATION_ERROR;
+			}
+			TraceInfo(DBG_INIT, "MM BAR %d (addr:0x%llx, length:%u) mapped at 0x%08p",
+				i, resource->u.Memory.Start.QuadPart, m_DmaBarLen, m_DmaBar);
+
+			break;
+
+		case CmResourceTypeMemoryLarge:
+
+			m_NumberOfBARs++;
+			if (resource->Flags & CM_RESOURCE_MEMORY_LARGE_40) {
+				PHYSICAL_ADDRESS start;
+				start.QuadPart = resource->u.Memory40.Start.QuadPart;
+				m_VideoBarLen = resource->u.Memory40.Length40 << 8;
+				m_VideoBarLen = 0x10000;//we only use part of it because the design is ugly
+				//offset to 2GB, customer design is stupid, I'll use only 2GB~2GB+64KB(0x10000) of 4GB
+				start.QuadPart += 0x80000000LL;
+				m_VideoBar = MmMapIoSpace(start, m_VideoBarLen, MmNonCached);
+
+				if (m_VideoBar == NULL) {
+					TraceError(DBG_INIT, "MmMapIoSpace returned NULL! for BAR%u", i);
+					return STATUS_DEVICE_CONFIGURATION_ERROR;
+				}
+				TraceInfo(DBG_INIT, "MM40 BAR %d (addr:0x%llx, length:%u) mapped at 0x%08p",
+					i, resource->u.Memory40.Start.QuadPart, m_VideoBarLen, m_VideoBar);
+			}
+
+			break;
+
+		case CmResourceTypeInterrupt:
+
+			//
+			// Save all the interrupt specific information in the device
+			// extension because we will need it to disconnect and connect the
+			// interrupt later on during power suspend and resume.
+			//
+
+			m_NumberOfIntrs++;
+
+			m_InterruptLevel = (UCHAR)resource->u.Interrupt.Level;
+			m_InterruptVector = resource->u.Interrupt.Vector;
+			m_InterruptAffinity = resource->u.Interrupt.Affinity;
+
+			if (resource->Flags & CM_RESOURCE_INTERRUPT_LATCHED) {
+
+				m_InterruptMode = Latched;
+
+			}
+			else {
+
+				m_InterruptMode = LevelSensitive;
+			}
+
+			//
+			// Because this is a PCI device, we KNOW it must be
+			// a LevelSensitive Interrupt.
+			//
+
+
+			TraceInfo(DBG_INIT,
+				"Interrupt level: 0x%0x, Vector: 0x%0x, Affinity: 0x%x\n",
+				m_InterruptLevel,
+				m_InterruptVector,
+				(UINT)m_InterruptAffinity); // casting is done to keep WPP happy
+			break;
+
+		default:
+			//
+			// This could be device-private type added by the PCI bus driver. We
+			// shouldn't filter this or change the information contained in it.
+			//
+			TraceInfo(DBG_INIT, "Unhandled resource type (0x%x)\n",
+				resource->Type);
+			break;
+
+		}
+	}
+
+	if (m_NumberOfBARs < 2 || m_NumberOfIntrs < 1) {
+		return STATUS_DEVICE_CONFIGURATION_ERROR;
+	}
+
+	return status;
+}
+
+/*************************************************/
+
+
+NTSTATUS CCaptureDevice::UnmapResources()
+{
+	PAGED_CODE();
+
+	NTSTATUS status = STATUS_SUCCESS;
+
+	return status;
+}
+
+/*************************************************/
+
+
+VOID
+AdmaDpcForIsr(
+	PKDPC            Dpc,
+	PDEVICE_OBJECT   DeviceObject,
+	PIRP             Irp, //Unused
+	PVOID            Context
+)
+
+/*++
+
+Routine Description:
+
+DPC callback for ISR.
+
+Arguments:
+
+DeviceObject - Pointer to the device object.
+
+Context - MiniportAdapterContext.
+
+Irp - Unused.
+
+Context - Pointer to FDO_DATA.
+
+Return Value:
+
+--*/
+{
+}
+
+/*************************************************/
+
+BOOLEAN
+AdmaInterruptHandler(
+	__in PKINTERRUPT  Interupt,
+	__in PVOID        ServiceContext
+)
+/*++
+Routine Description:
+
+Interrupt handler for the device.
+
+Arguments:
+
+Interupt - Address of the KINTERRUPT Object for our device.
+ServiceContext - Pointer to our adapter
+
+Return Value:
+
+TRUE if our device is interrupting, FALSE otherwise.
+
+--*/
+{
+	BOOLEAN     InterruptRecognized = FALSE;
+	PFDO_DATA   FdoData = (PFDO_DATA)ServiceContext;
+	USHORT      IntStatus;
+
+	DebugPrint(TRACE, DBG_INTERRUPT, "--> NICInterruptHandler\n");
+
+	do
+	{
+		//
+		// If the adapter is in low power state, then it should not
+		// recognize any interrupt
+		//
+		if (FdoData->DevicePowerState > PowerDeviceD0)
+		{
+			break;
+		}
+		//
+		// We process the interrupt if it's not disabled and it's active
+		//
+		if (!NIC_INTERRUPT_DISABLED(FdoData) && NIC_INTERRUPT_ACTIVE(FdoData))
+		{
+			InterruptRecognized = TRUE;
+
+			//
+			// Disable the interrupt (will be re-enabled in NICDpcForIsr
+			//
+			NICDisableInterrupt(FdoData);
+
+			//
+			// Acknowledge the interrupt(s) and get the interrupt status
+			//
+
+			NIC_ACK_INTERRUPT(FdoData, IntStatus);
+
+			DebugPrint(TRACE, DBG_INTERRUPT, "Requesting DPC\n");
+
+			IoRequestDpc(FdoData->Self, NULL, FdoData);
+
+		}
+	} while (FALSE);
+
+	DebugPrint(TRACE, DBG_INTERRUPT, "<-- NICInterruptHandler\n");
+
+	return InterruptRecognized;
+}
+
+
+/*************************************************/
+
+
+NTSTATUS 
+CCaptureDevice::
+SetupInterrupts(
+	IN PCM_RESOURCE_LIST TranslatedResourceList,
+	IN PCM_RESOURCE_LIST UntranslatedResourceList
+)
+{
+	PAGED_CODE();
+
+	NTSTATUS status = STATUS_SUCCESS;
+
+	//
+	// Disable interrupts here which is as soon as possible
+	//
+	// to do
+	IoInitializeDpcRequest(m_Device->FunctionalDeviceObject, AdmaDpcForIsr);
+
+	//
+	// Register the interrupt
+	//
+	status = IoConnectInterrupt(&m_Interrupt,
+		NICInterruptHandler,
+		FdoData,                   // ISR Context
+		NULL,
+		FdoData->InterruptVector,
+		FdoData->InterruptLevel,
+		FdoData->InterruptLevel,
+		FdoData->InterruptMode,
+		TRUE, // shared interrupt
+		FdoData->InterruptAffinity,
+		FALSE);
+	if (status != STATUS_SUCCESS)
+	{
+		DebugPrint(ERROR, DBG_INIT, "IoConnectInterrupt failed %x\n", status);
+		goto End;
+	}
+
+	MP_SET_FLAG(FdoData, fMP_ADAPTER_INTERRUPT_IN_USE);
+
+	//
+	// Zero out the entire structure first.
+	//
+	RtlZeroMemory(&deviceDescription, sizeof(DEVICE_DESCRIPTION));
+
+	//
+	// DMA_VER2 is defined when the driver is built to work on XP and
+	// above. The difference between DMA_VER2 and VER0 is that VER2
+	// support BuildScatterGatherList & CalculateScatterGatherList functions.
+	// BuildScatterGatherList performs the same operation as
+	// GetScatterGatherList, except that it uses the buffer supplied
+	// in the ScatterGatherBuffer parameter to hold the scatter/gather
+	// list that it creates. In contrast, GetScatterGatherList
+	// dynamically allocates a buffer to hold the scatter/gather list.
+	// If insufficient memory is available to allocate the buffer,
+	// GetScatterGatherList can fail with a STATUS_INSUFFICIENT_RESOURCES
+	// error. Drivers that must avoid this scenario can pre-allocate a
+	// buffer to hold the scatter/gather list, and use BuildScatterGatherList
+	// instead. A driver can use the CalculateScatterGatherList routine
+	// to determine the size of buffer to allocate to hold the
+	// scatter/gather list.
+	//
+#if defined(DMA_VER2)
+	deviceDescription.Version = DEVICE_DESCRIPTION_VERSION2;
+#else
+	deviceDescription.Version = DEVICE_DESCRIPTION_VERSION;
+#endif
+
+	deviceDescription.Master = TRUE;
+	deviceDescription.ScatterGather = TRUE;
+	deviceDescription.Dma32BitAddresses = TRUE;
+	deviceDescription.Dma64BitAddresses = FALSE;
+	deviceDescription.InterfaceType = PCIBus;
+
+	//
+	// Bare minimum number of map registers required to do
+	// a single NIC_MAX_PACKET_SIZE transfer.
+	//
+	miniMapRegisters = ((NIC_MAX_PACKET_SIZE * 2 - 2) / PAGE_SIZE) + 2;
+
+	//
+	// Maximum map registers required to do simultaneous transfer
+	// of all TCBs assuming each packet spanning NIC_MAX_PHYS_BUF_COUNT
+	// (Each request has chained MDLs).
+	//
+	maxMapRegistersRequired = FdoData->NumTcb * NIC_MAX_PHYS_BUF_COUNT;
+
+	//
+	// The maximum length of buffer for maxMapRegistersRequired number of
+	// map registers would be.
+	//
+	MaximumPhysicalMapping = (maxMapRegistersRequired - 1) << PAGE_SHIFT;
+	deviceDescription.MaximumLength = MaximumPhysicalMapping;
+
+	DmaAdapterObject = IoGetDmaAdapter(FdoData->UnderlyingPDO,
+		&deviceDescription,
+		&MapRegisters);
+	if (DmaAdapterObject == NULL)
+	{
+		DebugPrint(ERROR, DBG_INIT, "IoGetDmaAdapter failed\n");
+		status = STATUS_INSUFFICIENT_RESOURCES;
+		goto End;
+	}
+
+	if (MapRegisters < miniMapRegisters) {
+		DebugPrint(ERROR, DBG_INIT, "Not enough map registers: Allocated %d, Required %d\n",
+			MapRegisters, miniMapRegisters);
+		status = STATUS_INSUFFICIENT_RESOURCES;
+		goto End;
+	}
+
+	FdoData->AllocatedMapRegisters = MapRegisters;
+
+	//
+	// Adjust our TCB count based on the MapRegisters we got.
+	//
+	FdoData->NumTcb = MapRegisters / miniMapRegisters;
+
+	//
+	// Reset it NIC_MAX_TCBS if it exceeds that.
+	//
+	FdoData->NumTcb = min(FdoData->NumTcb, NIC_MAX_TCBS);
+
+	DebugPrint(TRACE, DBG_INIT, "MapRegisters Allocated %d\n", MapRegisters);
+	DebugPrint(TRACE, DBG_INIT, "Adjusted TCB count is %d\n", FdoData->NumTcb);
+
+	FdoData->DmaAdapterObject = DmaAdapterObject;
+	MP_SET_FLAG(FdoData, fMP_ADAPTER_SCATTER_GATHER);
+
+#if defined(DMA_VER2)
+
+	status = DmaAdapterObject->DmaOperations->CalculateScatterGatherList(
+		DmaAdapterObject,
+		NULL,
+		0,
+		MapRegisters * PAGE_SIZE,
+		&ScatterGatherListSize,
+		&SGMapRegsisters);
+
+
+	ASSERT(NT_SUCCESS(status));
+	ASSERT(SGMapRegsisters == MapRegisters);
+	if (!NT_SUCCESS(status))
+	{
+		status = STATUS_INSUFFICIENT_RESOURCES;
+		goto End;
+	}
+
+	FdoData->ScatterGatherListSize = ScatterGatherListSize;
+
+#endif
+
+	//
+	// For convenience, let us save the frequently used DMA operational
+	// functions in our device context.
+	//
+	FdoData->AllocateCommonBuffer =
+		*DmaAdapterObject->DmaOperations->AllocateCommonBuffer;
+	FdoData->FreeCommonBuffer =
+		*DmaAdapterObject->DmaOperations->FreeCommonBuffer;
+End:
+	//
+	// If we have jumped here due to any kind of mapping or resource allocation
+	// failure, we should clean up. Since we know that if we fail Start-Device,
+	// the system is going to send Remove-Device request, we will defer the
+	// job of cleaning to NICUnmapHWResources which is called in the Remove path.
+	//
+	return status;
+}
+
+/*************************************************/
+
+
 NTSTATUS
 CCaptureDevice::
 PnpStart (

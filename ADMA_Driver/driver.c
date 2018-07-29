@@ -219,9 +219,7 @@ NTSTATUS EvtDevicePrepareHardware(IN WDFDEVICE device, IN WDFCMRESLIST Resources
 		TraceError(DBG_INIT, "ADMA_DeviceOpen failed: %!STATUS!", status);
 		return status;
 	}
-	TraceVerbose(DBG_INIT, "<--Test Exit returning %!STATUS!", status);
-	return status;
-#if 0
+
 	// create a queue for each engine
 	for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
 		for (ULONG ch = 0; ch < ADMA_MAX_NUM_CHANNELS; ch++) {
@@ -238,7 +236,6 @@ NTSTATUS EvtDevicePrepareHardware(IN WDFDEVICE device, IN WDFCMRESLIST Resources
 
 	TraceVerbose(DBG_INIT, "<--Exit returning %!STATUS!", status);
 	return status;
-#endif
 }
 
 // Unmap PCIe resources

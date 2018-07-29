@@ -80,6 +80,22 @@ private:
     //
     PKS_VIDEOINFOHEADER m_VideoInfoHeader;
 
+	//
+	// PCIe Altera DMA resource
+	//
+	ULONG m_NumberOfBARs = 0;
+	PVOID m_DmaBar; // kernel virtual address of BAR
+	ULONG m_DmaBarLen;
+	PVOID m_VideoBar; // kernel virtual address of BAR
+	ULONG m_VideoBarLen;
+
+	ULONG m_NumberOfIntrs = 0;
+	UCHAR m_InterruptLevel;
+	ULONG m_InterruptVector;
+	KAFFINITY m_InterruptAffinity;
+	ULONG m_InterruptMode;
+	PKINTERRUPT m_Interrupt;
+
     //
     // Cleanup():
     //
@@ -95,6 +111,39 @@ private:
     {
         delete CapDevice;
     }
+
+	//
+	// MapResources():
+	//
+	// This is the Pnp start routine for our simulated hardware.  Note that
+	// DispatchStart bridges to here in the context of the CCaptureDevice.
+	//
+	NTSTATUS
+	MapResources(
+		IN PCM_RESOURCE_LIST TranslatedResourceList,
+		IN PCM_RESOURCE_LIST UntranslatedResourceList
+		);
+
+	//
+	// UnmapResources():
+	//
+	// This is the Pnp start routine for our simulated hardware.  Note that
+	// DispatchStart bridges to here in the context of the CCaptureDevice.
+	//
+	NTSTATUS
+	UnmapResources();
+
+	//
+	// MapResources():
+	//
+	// This is the Pnp start routine for our simulated hardware.  Note that
+	// DispatchStart bridges to here in the context of the CCaptureDevice.
+	//
+	NTSTATUS
+	SetupInterrupts(
+		IN PCM_RESOURCE_LIST TranslatedResourceList,
+		IN PCM_RESOURCE_LIST UntranslatedResourceList
+		);
 
     //
     // PnpStart():
