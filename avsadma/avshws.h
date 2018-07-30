@@ -31,7 +31,7 @@
 extern "C" {
 #include <wdm.h>
 }
-
+#include <iointex.h>
 #include <windef.h>
 #include <stdio.h>
 #include <ntstrsafe.h>

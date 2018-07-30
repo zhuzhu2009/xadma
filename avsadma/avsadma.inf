@@ -1,86 +1,173 @@
+;/*++
 ;
-; avsadma.inf
+;Copyright (c) Qinger Corporation.  All rights reserved.
 ;
+;    THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY
+;    KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+;    IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A PARTICULAR
+;    PURPOSE.
+;
+;Module Name:
+;
+;    avsadma.inf
+;
+;Abstract:
+;
+;
+;AVStream pin centric mini driver (avsadma.sys) installation file. 
+;Supports x86, amd64, arm and arm64 platforms
+;
+;--*/
 
 [Version]
-Signature="$WINDOWS NT$"
-Class=Sample ; TODO: edit Class
-ClassGuid={78A1C341-4539-11d3-B88D-00C04FAD5171} ; TODO: edit ClassGuid
-Provider=%ManufacturerName%
-CatalogFile=avsadma.cat
-DriverVer= ; TODO: set DriverVer in stampinf property pages
-
-[DestinationDirs]
-DefaultDestDir = 12
-avsadma_Device_CoInstaller_CopyFiles = 11
-
-; ================= Class section =====================
-
-[ClassInstall32]
-Addreg=SampleClassReg
-
-[SampleClassReg]
-HKR,,,0,%ClassName%
-HKR,,Icon,,-5
+signature="$WINDOWS NT$"
+Class=Camera
+ClassGuid={ca3e7ab9-b4c3-4ae6-8251-579ef933890f}
+Provider=%ProviderName%
+Catalogfile=avsadma.cat
+DriverVer=07/28/2018,1.0.0000.0
 
 [SourceDisksNames]
-1 = %DiskName%,,,""
+1000=%cdname%,,,
 
 [SourceDisksFiles]
-avsadma.sys  = 1,,
-WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll=1 ; make sure the number matches with SourceDisksNames
+avsadma.sys=1000
 
-;*****************************************
-; Install Section
-;*****************************************
+[DestinationDirs]
+DefaultDestDir=12
+avsadma.CopyFiles=12
 
-[Manufacturer]
-%ManufacturerName%=Standard,NT$ARCH$
-
-[Standard.NT$ARCH$]
-%avsadma.DeviceDesc%=avsadma_Device, Root\avsadma ; TODO: edit hw-id
-
-[avsadma_Device.NT]
-CopyFiles=Drivers_Dir
-
-[Drivers_Dir]
+[avsadma.CopyFiles]
 avsadma.sys
 
-;-------------- Service installation
-[avsadma_Device.NT.Services]
-AddService = avsadma,%SPSVCINST_ASSOCSERVICE%, avsadma_Service_Inst
+[Manufacturer]
+%ManufacturerName%=Standard,NTx86,NTamd64,ntarm,ntarm64
 
-; -------------- avsadma driver install sections
-[avsadma_Service_Inst]
-DisplayName    = %avsadma.SVCDESC%
-ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
-StartType      = 3               ; SERVICE_DEMAND_START
-ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
-ServiceBinary  = %12%\avsadma.sys
+[Standard.NTx86]
+%avsadma.DeviceDesc%=avsadma.NTx86,PCI\VEN_1172&DEV_e003
 
-;
-;--- avsadma_Device Coinstaller installation ------
-;
+[Standard.NTamd64]
+%avsadma.DeviceDesc%=avsadma.NTamd64,PCI\VEN_1172&DEV_e003
 
-[avsadma_Device.NT.CoInstallers]
-AddReg=avsadma_Device_CoInstaller_AddReg
-CopyFiles=avsadma_Device_CoInstaller_CopyFiles
+[Standard.NTarm]
+%avsadma.DeviceDesc%=avsadma.NTarm,PCI\VEN_1172&DEV_e003
 
-[avsadma_Device_CoInstaller_AddReg]
-HKR,,CoInstallers32,0x00010000, "WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll,WdfCoInstaller"
+[Standard.NTarm64]
+%avsadma.DeviceDesc%=avsadma.NTarm64,PCI\VEN_1172&DEV_e003
 
-[avsadma_Device_CoInstaller_CopyFiles]
-WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll
+;---------------------------------------------------------------
+;                x 86  D D I n s t a l l
+;---------------------------------------------------------------
 
-[avsadma_Device.NT.Wdf]
-KmdfService =  avsadma, avsadma_wdfsect
-[avsadma_wdfsect]
-KmdfLibraryVersion = $KMDFVERSION$
+[avsadma.NTx86]
+Include=ks.inf, KSCAPTUR.inf
+Needs=KS.Registration,KSCAPTUR.Registration.NT
+CopyFiles=avsadma.CopyFiles
+
+;---------------------------------------------------------------
+;                A M D 64  D D I n s t a l l
+;---------------------------------------------------------------
+
+[avsadma.NTamd64]
+Include=ks.inf,KSCAPTUR.inf
+Needs=KS.Registration,KSCAPTUR.Registration.NT
+CopyFiles=avsadma.CopyFiles
+
+;---------------------------------------------------------------
+;                A R M  D D I n s t a l l
+;---------------------------------------------------------------
+
+[avsadma.NTarm]
+Include=ks.inf,KSCAPTUR.inf
+Needs=KS.Registration,KSCAPTUR.Registration.NT
+CopyFiles=avsadma.CopyFiles
+
+;---------------------------------------------------------------
+;                A R M 64  D D I n s t a l l
+;---------------------------------------------------------------
+
+[avsadma.NTarm64]
+Include=ks.inf,KSCAPTUR.inf
+Needs=KS.Registration,KSCAPTUR.Registration.NT
+CopyFiles=avsadma.CopyFiles
+
+;---------------------------------------------------------------
+;                I n t e r f a c e s
+;---------------------------------------------------------------
+
+[avsadma.NTx86.Interfaces]
+AddInterface=%KSCATEGORY_CAPTURE%,"GLOBAL",CaptureInterface.NT,0
+AddInterface=%KSCATEGORY_VIDEO%,"GLOBAL",CaptureInterface.NT,0
+AddInterface=%KSCATEGORY_VIDEO_CAMERA%,"GLOBAL",CaptureInterface.NT,0
+
+[avsadma.NTamd64.Interfaces]
+AddInterface=%KSCATEGORY_CAPTURE%,"GLOBAL",CaptureInterface.NT,0
+AddInterface=%KSCATEGORY_VIDEO%,"GLOBAL",CaptureInterface.NT,0
+AddInterface=%KSCATEGORY_VIDEO_CAMERA%,"GLOBAL",CaptureInterface.NT,0
+
+[avsadma.NTarm.Interfaces]
+AddInterface=%KSCATEGORY_CAPTURE%,"GLOBAL",CaptureInterface.NT,0
+AddInterface=%KSCATEGORY_VIDEO%,"GLOBAL",CaptureInterface.NT,0
+AddInterface=%KSCATEGORY_VIDEO_CAMERA%,"GLOBAL",CaptureInterface.NT,0
+
+[avsadma.NTarm64.Interfaces]
+AddInterface=%KSCATEGORY_CAPTURE%,"GLOBAL",CaptureInterface.NT,0
+AddInterface=%KSCATEGORY_VIDEO%,"GLOBAL",CaptureInterface.NT,0
+AddInterface=%KSCATEGORY_VIDEO_CAMERA%,"GLOBAL",CaptureInterface.NT,0
+
+[CaptureInterface.NT]
+AddReg=avsadma.Reader.AddReg
+
+;---------------------------------------------------------------
+;                A d d R e g
+;---------------------------------------------------------------
+
+[avsadma.Reader.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%avsadma.Reader.FriendlyName%
+
+;---------------------------------------------------------------
+;                S e r v i c e s  
+;---------------------------------------------------------------
+
+[avsadma.NTx86.Services]
+AddService=avsadma, 0x00000002, avsadma.ServiceInstall
+
+[avsadma.NTamd64.Services]
+AddService=avsadma, 0x00000002, avsadma.ServiceInstall
+
+[avsadma.NTarm.Services]
+AddService=avsadma, 0x00000002, avsadma.ServiceInstall
+
+[avsadma.NTarm64.Services]
+AddService=avsadma, 0x00000002, avsadma.ServiceInstall
+
+[avsadma.ServiceInstall]
+DisplayName=%avsadma.DeviceDesc%
+ServiceType=%SERVICE_KERNEL_DRIVER%
+StartType=%SERVICE_DEMAND_START%
+ErrorControl=%SERVICE_ERROR_NORMAL%
+ServiceBinary=%12%\avsadma.sys
+
+;---------------------------------------------------------------
+;                S t r i n g s
+;---------------------------------------------------------------
 
 [Strings]
-SPSVCINST_ASSOCSERVICE= 0x00000002
-ManufacturerName="<Your manufacturer name>" ;TODO: Replace with your manufacturer name
-ClassName="Samples" ; TODO: edit ClassName
-DiskName = "avsadma Installation Disk"
-avsadma.DeviceDesc = "avsadma Device"
-avsadma.SVCDESC = "avsadma Service"
+; non-localizable
+Proxy.CLSID="{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
+KSCATEGORY_CAPTURE="{65E8773D-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_VIDEO="{6994AD05-93EF-11D0-A3CC-00A0C9223196}"
+KSCATEGORY_VIDEO_CAMERA="{E5323777-F976-4f5b-9B55-B94699C46E44}"
+
+SERVICE_KERNEL_DRIVER=1
+SERVICE_DEMAND_START=3
+SERVICE_ERROR_NORMAL=1
+REG_DWORD=0x00010001
+
+;localizable
+ProviderName="Qinger"
+ManufacturerName="Qinger IT"
+avsadma.DeviceDesc="AVStream Altera PCIe DMA"
+avsadma.Reader.FriendlyName="avsadma Source"
+cdname="avsadma Installation Disk"

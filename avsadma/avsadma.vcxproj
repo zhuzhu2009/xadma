@@ -73,7 +73,7 @@
     <ClInclude Include="filter.h" />
     <ClInclude Include="hwsim.h" />
     <ClInclude Include="image.h" />
-    <ClInclude Include="Trace.h" />
+    <ClInclude Include="trace.h" />
   </ItemGroup>
   <ItemGroup>
     <Inf Include="avsadma.inf" />
