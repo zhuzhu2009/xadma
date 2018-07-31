@@ -21,8 +21,10 @@
 
 [Version]
 signature="$WINDOWS NT$"
-Class=Camera
-ClassGuid={ca3e7ab9-b4c3-4ae6-8251-579ef933890f}
+;Class=Camera
+;ClassGuid={ca3e7ab9-b4c3-4ae6-8251-579ef933890f}
+Class=Media
+ClassGUID={4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider=%ProviderName%
 Catalogfile=avsadma.cat
 DriverVer=07/28/2018,1.0.0000.0
@@ -64,6 +66,10 @@ Include=ks.inf, KSCAPTUR.inf
 Needs=KS.Registration,KSCAPTUR.Registration.NT
 CopyFiles=avsadma.CopyFiles
 
+; MSI/MSI-X support
+[avsadma.NTx86.HW]
+AddReg = avsadma.EnableMSI
+
 ;---------------------------------------------------------------
 ;                A M D 64  D D I n s t a l l
 ;---------------------------------------------------------------
@@ -72,6 +78,10 @@ CopyFiles=avsadma.CopyFiles
 Include=ks.inf,KSCAPTUR.inf
 Needs=KS.Registration,KSCAPTUR.Registration.NT
 CopyFiles=avsadma.CopyFiles
+
+; MSI/MSI-X support
+[avsadma.NTamd64.HW]
+AddReg = avsadma.EnableMSI
 
 ;---------------------------------------------------------------
 ;                A R M  D D I n s t a l l
@@ -82,6 +92,10 @@ Include=ks.inf,KSCAPTUR.inf
 Needs=KS.Registration,KSCAPTUR.Registration.NT
 CopyFiles=avsadma.CopyFiles
 
+; MSI/MSI-X support
+[avsadma.NTarm.HW]
+AddReg = avsadma.EnableMSI
+
 ;---------------------------------------------------------------
 ;                A R M 64  D D I n s t a l l
 ;---------------------------------------------------------------
@@ -90,6 +104,20 @@ CopyFiles=avsadma.CopyFiles
 Include=ks.inf,KSCAPTUR.inf
 Needs=KS.Registration,KSCAPTUR.Registration.NT
 CopyFiles=avsadma.CopyFiles
+
+; MSI/MSI-X support
+[avsadma.NTarm64.HW]
+AddReg = avsadma.EnableMSI
+
+;---------------------------------------------------------------
+;                msi/msi-x enable limit msi/msi-x num 32
+;---------------------------------------------------------------
+ 
+[avsadma.EnableMSI]
+HKR,"Interrupt Management",,0x00000010
+HKR,"Interrupt Management\MessageSignaledInterruptProperties",,0x00000010
+HKR,"Interrupt Management\MessageSignaledInterruptProperties",MSISupported,0x00010001,1
+HKR,"Interrupt Management\MessageSignaledInterruptProperties",MessageNumberLimit,0x00010001,32
 
 ;---------------------------------------------------------------
 ;                I n t e r f a c e s

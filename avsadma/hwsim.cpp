@@ -771,7 +771,7 @@ Return Value:
 --*/
 
 {
-
+#if 0
     m_InterruptTime++;
 
     //
@@ -864,5 +864,5 @@ Return Value:
         m_StopHardware = FALSE;
         KeSetEvent (&m_HardwareEvent, IO_NO_INCREMENT, FALSE);
     }
-
+#endif
 }

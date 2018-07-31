@@ -22,6 +22,11 @@
 
 #include "avshws.h"
 
+#include "trace.h"
+#ifdef DBG
+#include "device.tmh"
+#endif
+
 PVOID operator new
 (
     size_t          iSize,
@@ -339,20 +344,27 @@ MapResources(
 			//
 
 			m_NumberOfIntrs++;
+			TraceInfo(DBG_INIT, "Interrupt resource Cnt: %d\n", m_NumberOfIntrs);
 
-			m_InterruptLevel = (UCHAR)resource->u.Interrupt.Level;
-			m_InterruptVector = resource->u.Interrupt.Vector;
-			m_InterruptAffinity = resource->u.Interrupt.Affinity;
+			if (m_NumberOfIntrs > 1) {
+				break;
+			}
 
-			if (resource->Flags & CM_RESOURCE_INTERRUPT_LATCHED) {
-
-				m_InterruptMode = Latched;
-
+			if (m_InterruptFlags & CM_RESOURCE_INTERRUPT_MESSAGE) {
+				// The resource is for a message-signaled interrupt. Use the u.MessageInterrupt.Translated member of IntResource.
+				m_InterruptLevel = (UCHAR)resource->u.MessageInterrupt.Translated.Level;
+				m_InterruptVector = resource->u.MessageInterrupt.Translated.Vector;
+				m_InterruptAffinity = resource->u.MessageInterrupt.Translated.Affinity;
+				m_MessageCount = resource->u.MessageInterrupt.Raw.MessageCount;
 			}
 			else {
-
-				m_InterruptMode = LevelSensitive;
+				// The resource is for a line-based interrupt. Use the u.Interrupt member of IntResource.
+				m_InterruptLevel = (UCHAR)resource->u.Interrupt.Level;
+				m_InterruptVector = resource->u.Interrupt.Vector;
+				m_InterruptAffinity = resource->u.Interrupt.Affinity;
 			}
+			m_InterruptFlags = resource->Flags;
+			m_ShareDisposition = resource->ShareDisposition;
 
 			//
 			// Because this is a PCI device, we KNOW it must be
@@ -361,10 +373,11 @@ MapResources(
 
 
 			TraceInfo(DBG_INIT,
-				"Interrupt level: 0x%0x, Vector: 0x%0x, Affinity: 0x%x\n",
+				"Interrupt level: 0x%0x, Vector: 0x%0x, Affinity: 0x%x, Flags: 0x%x\n",
 				m_InterruptLevel,
 				m_InterruptVector,
-				(UINT)m_InterruptAffinity); // casting is done to keep WPP happy
+				(UINT)m_InterruptAffinity,
+				m_InterruptFlags); // casting is done to keep WPP happy
 			break;
 
 		default:
@@ -383,6 +396,11 @@ MapResources(
 		return STATUS_DEVICE_CONFIGURATION_ERROR;
 	}
 
+	if (m_NumberOfIntrs > 1) {
+		TraceInfo(DBG_INIT, "Unsupported Multi MSI/MSI-X resources\n");
+		return STATUS_DEVICE_CONFIGURATION_ERROR;
+	}
+
 	return status;
 }
 
@@ -395,6 +413,20 @@ NTSTATUS CCaptureDevice::UnmapResources()
 
 	NTSTATUS status = STATUS_SUCCESS;
 
+	if (m_DmaBar != NULL) {
+		TraceInfo(DBG_INIT, "Unmapping DMA BAR, VA:(%p) Length %ul",
+			m_DmaBar, m_DmaBarLen);
+		MmUnmapIoSpace(m_DmaBar, m_DmaBarLen);
+		m_DmaBar = NULL;
+	}
+
+	if (m_VideoBar != NULL) {
+		TraceInfo(DBG_INIT, "Unmapping DMA BAR, VA:(%p) Length %ul",
+			m_VideoBar, m_VideoBarLen);
+		MmUnmapIoSpace(m_VideoBar, m_VideoBarLen);
+		m_VideoBar = NULL;
+	}
+
 	return status;
 }
 
@@ -402,6 +434,7 @@ NTSTATUS CCaptureDevice::UnmapResources()
 
 
 VOID
+CCaptureDevice::
 AdmaDpcForIsr(
 	PKDPC            Dpc,
 	PDEVICE_OBJECT   DeviceObject,
@@ -429,11 +462,19 @@ Return Value:
 
 --*/
 {
+	CCaptureDevice *CapDevice = NULL;
+	CapDevice = reinterpret_cast <CCaptureDevice *> (Context);
+
+	TraceInfo(DBG_IRQ, "--> AdmaDpcForIsr\n");
+
+
+	TraceInfo(DBG_IRQ, "<-- AdmaDpcForIsr\n");
 }
 
 /*************************************************/
 
 BOOLEAN
+CCaptureDevice::
 AdmaInterruptHandler(
 	__in PKINTERRUPT  Interupt,
 	__in PVOID        ServiceContext
@@ -454,50 +495,63 @@ TRUE if our device is interrupting, FALSE otherwise.
 
 --*/
 {
-	BOOLEAN     InterruptRecognized = FALSE;
-	PFDO_DATA   FdoData = (PFDO_DATA)ServiceContext;
-	USHORT      IntStatus;
+	//BOOLEAN     InterruptRecognized = FALSE;
+	CCaptureDevice *CapDevice = NULL;
+	CapDevice = reinterpret_cast <CCaptureDevice *> (ServiceContext);
+	//USHORT      IntStatus;
 
-	DebugPrint(TRACE, DBG_INTERRUPT, "--> NICInterruptHandler\n");
+	TraceInfo(DBG_IRQ, "--> AdmaInterruptHandler\n");
 
-	do
-	{
-		//
-		// If the adapter is in low power state, then it should not
-		// recognize any interrupt
-		//
-		if (FdoData->DevicePowerState > PowerDeviceD0)
-		{
-			break;
-		}
-		//
-		// We process the interrupt if it's not disabled and it's active
-		//
-		if (!NIC_INTERRUPT_DISABLED(FdoData) && NIC_INTERRUPT_ACTIVE(FdoData))
-		{
-			InterruptRecognized = TRUE;
 
-			//
-			// Disable the interrupt (will be re-enabled in NICDpcForIsr
-			//
-			NICDisableInterrupt(FdoData);
+	TraceInfo(DBG_IRQ, "Requesting DPC\n");
 
-			//
-			// Acknowledge the interrupt(s) and get the interrupt status
-			//
+	IoRequestDpc(CapDevice->m_Device->FunctionalDeviceObject, NULL, reinterpret_cast <PVOID> (CapDevice));
 
-			NIC_ACK_INTERRUPT(FdoData, IntStatus);
+	TraceInfo(DBG_IRQ, "<-- AdmaInterruptHandler\n");
 
-			DebugPrint(TRACE, DBG_INTERRUPT, "Requesting DPC\n");
+	return TRUE;// InterruptRecognized;
+}
 
-			IoRequestDpc(FdoData->Self, NULL, FdoData);
+/*************************************************/
 
-		}
-	} while (FALSE);
+BOOLEAN
+CCaptureDevice::
+AdmaInterruptMessageService(
+	__in PKINTERRUPT Interrupt,
+	__in PVOID  ServiceContext,
+	__in ULONG  MessageId
+)
+/*++
+Routine Description:
 
-	DebugPrint(TRACE, DBG_INTERRUPT, "<-- NICInterruptHandler\n");
+Interrupt handler for the device.
 
-	return InterruptRecognized;
+Arguments:
+
+Interupt - Address of the KINTERRUPT Object for our device.
+ServiceContext - Pointer to our adapter
+
+Return Value:
+
+TRUE if our device is interrupting, FALSE otherwise.
+
+--*/
+{
+	//BOOLEAN     InterruptRecognized = FALSE;
+	CCaptureDevice *CapDevice = NULL;
+	CapDevice = reinterpret_cast <CCaptureDevice *> (ServiceContext);
+	//USHORT      IntStatus;
+
+	TraceInfo(DBG_IRQ, "--> AdmaInterruptHandler\n");
+
+
+	TraceInfo(DBG_IRQ, "Requesting DPC MessageId %d\n", MessageId);
+
+	IoRequestDpc(CapDevice->m_Device->FunctionalDeviceObject, NULL, reinterpret_cast <PVOID> (CapDevice));
+
+	TraceInfo(DBG_IRQ, "<-- AdmaInterruptHandler\n");
+
+	return TRUE;// InterruptRecognized;
 }
 
 
@@ -514,34 +568,100 @@ SetupInterrupts(
 	PAGED_CODE();
 
 	NTSTATUS status = STATUS_SUCCESS;
-
+	DEVICE_DESCRIPTION              deviceDescription;
+#if defined(DMA_VER2) // To avoid  unreferenced local variables error
+	ULONG                           SGMapRegsisters;
+	ULONG                           ScatterGatherListSize;
+#endif
+	IO_CONNECT_INTERRUPT_PARAMETERS interruptParams;
+	PVOID intrMsgConnectionContext;
 	//
 	// Disable interrupts here which is as soon as possible
 	//
 	// to do
-	IoInitializeDpcRequest(m_Device->FunctionalDeviceObject, AdmaDpcForIsr);
+	IoInitializeDpcRequest(m_Device->FunctionalDeviceObject, 
+		reinterpret_cast <PIO_DPC_ROUTINE> (CCaptureDevice::AdmaDpcForIsr));
 
 	//
 	// Register the interrupt
 	//
+#if 0
+	if (m_InterruptFlags & CM_RESOURCE_INTERRUPT_LATCHED) {
+		m_InterruptMode = Latched;
+	}
+	else {
+		m_InterruptMode = LevelSensitive;
+	}
+
 	status = IoConnectInterrupt(&m_Interrupt,
-		NICInterruptHandler,
-		FdoData,                   // ISR Context
+		reinterpret_cast <PKSERVICE_ROUTINE> (CCaptureDevice::AdmaInterruptHandler),
+		reinterpret_cast <PVOID> (this),                   // ISR Context
 		NULL,
-		FdoData->InterruptVector,
-		FdoData->InterruptLevel,
-		FdoData->InterruptLevel,
-		FdoData->InterruptMode,
+		m_InterruptVector,
+		m_InterruptLevel,
+		m_InterruptLevel,
+		m_InterruptMode,
 		TRUE, // shared interrupt
-		FdoData->InterruptAffinity,
+		m_InterruptAffinity,
 		FALSE);
 	if (status != STATUS_SUCCESS)
 	{
-		DebugPrint(ERROR, DBG_INIT, "IoConnectInterrupt failed %x\n", status);
+		TraceError(DBG_INIT, "IoConnectInterrupt failed %x\n", status);
+		goto End;
+	}
+#endif
+#if 0
+	interruptParams.Version = CONNECT_FULLY_SPECIFIED;
+	interruptParams.FullySpecified.PhysicalDeviceObject = m_Device->PhysicalDeviceObject;
+	interruptParams.FullySpecified.InterruptObject = &m_Interrupt;
+	interruptParams.FullySpecified.ServiceRoutine = reinterpret_cast <PKSERVICE_ROUTINE> (CCaptureDevice::AdmaInterruptHandler);
+	interruptParams.FullySpecified.ServiceContext = reinterpret_cast <PVOID> (this);
+	interruptParams.FullySpecified.FloatingSave = FALSE;
+	interruptParams.FullySpecified.SpinLock = NULL;
+	interruptParams.FullySpecified.Vector = m_InterruptVector;
+	interruptParams.FullySpecified.Irql = (KIRQL)m_InterruptLevel;
+	interruptParams.FullySpecified.SynchronizeIrql = (KIRQL)m_InterruptLevel;
+	interruptParams.FullySpecified.ProcessorEnableMask = m_InterruptAffinity;
+	interruptParams.FullySpecified.InterruptMode = (m_InterruptFlags & CM_RESOURCE_INTERRUPT_LATCHED ? Latched : LevelSensitive);
+	interruptParams.FullySpecified.ShareVector = (BOOLEAN)(m_ShareDisposition == CmResourceShareShared);
+	status = IoConnectInterruptEx(&interruptParams);
+
+	if (status != STATUS_SUCCESS) {
+		TraceError(DBG_INIT, "IoConnectInterruptEx failed %x\n", status);
+		goto End;
+	}
+#endif
+
+	RtlZeroMemory(&interruptParams, sizeof(IO_CONNECT_INTERRUPT_PARAMETERS));
+	interruptParams.Version = CONNECT_MESSAGE_BASED;
+	interruptParams.MessageBased.PhysicalDeviceObject = m_Device->PhysicalDeviceObject;
+	interruptParams.MessageBased.ConnectionContext.Generic = &intrMsgConnectionContext;
+	interruptParams.MessageBased.MessageServiceRoutine = reinterpret_cast <PKMESSAGE_SERVICE_ROUTINE> (CCaptureDevice::AdmaInterruptMessageService);
+	interruptParams.MessageBased.ServiceContext = reinterpret_cast <PVOID> (this);
+	interruptParams.MessageBased.SpinLock = NULL;
+	interruptParams.MessageBased.SynchronizeIrql = 0;
+	interruptParams.MessageBased.FloatingSave = FALSE;
+	interruptParams.MessageBased.FallBackServiceRoutine = reinterpret_cast <PKSERVICE_ROUTINE> (CCaptureDevice::AdmaInterruptHandler);
+
+	status = IoConnectInterruptEx(&interruptParams);//WdmlibIoConnectInterruptEx(&interruptParams); //
+	if (NT_SUCCESS(status)) {
+		// We record the type of ISR registered.
+		m_InterruptType = interruptParams.Version;
+		if (m_InterruptType == CONNECT_MESSAGE_BASED) {
+			m_InterruptMessageTable = (PIO_INTERRUPT_MESSAGE_INFO)intrMsgConnectionContext;
+			TraceInfo(DBG_INIT, "MSI/MSI-X interrupt Allocated msg num %d\n", m_InterruptMessageTable->MessageCount);
+		}
+		else {
+			m_Interrupt = (PKINTERRUPT)intrMsgConnectionContext;
+		}
+	}
+	else {
+		// Operation failed. Handle error.
+		TraceError(DBG_INIT, "IoConnectInterruptEx failed %x\n", status);
 		goto End;
 	}
 
-	MP_SET_FLAG(FdoData, fMP_ADAPTER_INTERRUPT_IN_USE);
+	//MP_SET_FLAG(FdoData, fMP_ADAPTER_INTERRUPT_IN_USE);
 
 	//
 	// Zero out the entire structure first.
@@ -576,61 +696,20 @@ SetupInterrupts(
 	deviceDescription.Dma32BitAddresses = TRUE;
 	deviceDescription.Dma64BitAddresses = FALSE;
 	deviceDescription.InterfaceType = PCIBus;
+	deviceDescription.MaximumLength = ADMA_MAX_TRANSFER_SIZE;// 128 << PAGE_SHIFT;
 
-	//
-	// Bare minimum number of map registers required to do
-	// a single NIC_MAX_PACKET_SIZE transfer.
-	//
-	miniMapRegisters = ((NIC_MAX_PACKET_SIZE * 2 - 2) / PAGE_SIZE) + 2;
-
-	//
-	// Maximum map registers required to do simultaneous transfer
-	// of all TCBs assuming each packet spanning NIC_MAX_PHYS_BUF_COUNT
-	// (Each request has chained MDLs).
-	//
-	maxMapRegistersRequired = FdoData->NumTcb * NIC_MAX_PHYS_BUF_COUNT;
-
-	//
-	// The maximum length of buffer for maxMapRegistersRequired number of
-	// map registers would be.
-	//
-	MaximumPhysicalMapping = (maxMapRegistersRequired - 1) << PAGE_SHIFT;
-	deviceDescription.MaximumLength = MaximumPhysicalMapping;
-
-	DmaAdapterObject = IoGetDmaAdapter(FdoData->UnderlyingPDO,
+	m_DmaAdapterObject = IoGetDmaAdapter(m_Device->PhysicalDeviceObject,
 		&deviceDescription,
-		&MapRegisters);
-	if (DmaAdapterObject == NULL)
+		&m_NumberOfMapRegisters);
+	if (m_DmaAdapterObject == NULL)
 	{
-		DebugPrint(ERROR, DBG_INIT, "IoGetDmaAdapter failed\n");
+		TraceError(DBG_INIT, "IoGetDmaAdapter failed\n");
 		status = STATUS_INSUFFICIENT_RESOURCES;
 		goto End;
 	}
 
-	if (MapRegisters < miniMapRegisters) {
-		DebugPrint(ERROR, DBG_INIT, "Not enough map registers: Allocated %d, Required %d\n",
-			MapRegisters, miniMapRegisters);
-		status = STATUS_INSUFFICIENT_RESOURCES;
-		goto End;
-	}
-
-	FdoData->AllocatedMapRegisters = MapRegisters;
-
-	//
-	// Adjust our TCB count based on the MapRegisters we got.
-	//
-	FdoData->NumTcb = MapRegisters / miniMapRegisters;
-
-	//
-	// Reset it NIC_MAX_TCBS if it exceeds that.
-	//
-	FdoData->NumTcb = min(FdoData->NumTcb, NIC_MAX_TCBS);
-
-	DebugPrint(TRACE, DBG_INIT, "MapRegisters Allocated %d\n", MapRegisters);
-	DebugPrint(TRACE, DBG_INIT, "Adjusted TCB count is %d\n", FdoData->NumTcb);
-
-	FdoData->DmaAdapterObject = DmaAdapterObject;
-	MP_SET_FLAG(FdoData, fMP_ADAPTER_SCATTER_GATHER);
+	TraceInfo(DBG_INIT, "MapRegisters Allocated %d\n", m_NumberOfMapRegisters);
+	//MP_SET_FLAG(FdoData, fMP_ADAPTER_SCATTER_GATHER);
 
 #if defined(DMA_VER2)
 
@@ -659,10 +738,52 @@ SetupInterrupts(
 	// For convenience, let us save the frequently used DMA operational
 	// functions in our device context.
 	//
-	FdoData->AllocateCommonBuffer =
-		*DmaAdapterObject->DmaOperations->AllocateCommonBuffer;
-	FdoData->FreeCommonBuffer =
-		*DmaAdapterObject->DmaOperations->FreeCommonBuffer;
+	AllocateCommonBuffer =
+		*m_DmaAdapterObject->DmaOperations->AllocateCommonBuffer;
+	FreeCommonBuffer =
+		*m_DmaAdapterObject->DmaOperations->FreeCommonBuffer;
+
+	//
+	// Initialize our DMA adapter object with AVStream.  This is 
+	// **ONLY** necessary **IF** you are doing DMA directly into
+	// capture buffers as this sample does.  For this,
+	// KSPIN_FLAG_GENERATE_MAPPINGS must be specified on a queue.
+	//
+
+	PUNKNOWN DeviceUnk = KsDeviceGetOuterUnknown(
+			m_Device);
+
+	// Register the DMA adapter with AVStream
+	IKsDeviceFunctions *DeviceFunctions;
+	status = DeviceUnk->QueryInterface(
+		__uuidof (IKsDeviceFunctions),
+		(PVOID *)&DeviceFunctions);
+
+	// Conditionally, call IksDeviceFunctions::RegisterAdapterObjectEx, 
+	// which will not break downlevel load compatibility.
+
+	if (NT_SUCCESS(status)) {
+		DeviceFunctions->RegisterAdapterObjectEx(
+			m_DmaAdapterObject,
+			&deviceDescription,
+			m_NumberOfMapRegisters,
+			ADMA_MAX_TRANSFER_SIZE,
+			sizeof(KSMAPPING)
+		);
+		DeviceFunctions->Release();
+}
+
+	// If this call fails, call KsDeviceRegisterAdapterObject to
+	// preserve downlevel load compatibility.
+	else {
+		KsDeviceRegisterAdapterObject(
+			m_Device,
+			m_DmaAdapterObject,
+			ADMA_MAX_TRANSFER_SIZE,
+			sizeof(KSMAPPING)
+		);
+	}
+
 End:
 	//
 	// If we have jumped here due to any kind of mapping or resource allocation
@@ -758,88 +879,10 @@ Return Value:
                 delete m_HardwareSimulation;
             }
         }
-#if defined(_X86_)
-        //
-        // DMA operations illustrated in this sample are applicable only for 32bit platform.
-        //
-        INTERFACE_TYPE InterfaceBuffer;
-        ULONG InterfaceLength;
-        DEVICE_DESCRIPTION DeviceDescription;
+		
+		MapResources(TranslatedResourceList, UntranslatedResourceList);
 
-        if (NT_SUCCESS (Status)) {
-            //
-            // Set up DMA...
-            //
-            // Ordinarilly, we'd be using InterfaceBuffer or 
-            // InterfaceTypeUndefined if !NT_SUCCESS (IfStatus) as the 
-            // InterfaceType below; however, for the purposes of this sample, 
-            // we lie and say we're on the PCI Bus.  Otherwise, we're using map
-            // registers on x86 32 bit physical to 32 bit logical and this isn't
-            // what I want to show in this sample.
-            //
-            //
-            // NTSTATUS IfStatus = 
-
-            IoGetDeviceProperty (
-                m_Device -> PhysicalDeviceObject,
-                DevicePropertyLegacyBusType,
-                sizeof (INTERFACE_TYPE),
-                &InterfaceBuffer,
-                &InterfaceLength
-                );
-
-            //
-            // Initialize our fake device description.  We claim to be a 
-            // bus-mastering 32-bit scatter/gather capable piece of hardware.
-            //
-            DeviceDescription.Version = DEVICE_DESCRIPTION_VERSION;
-            DeviceDescription.DmaChannel = ((ULONG) ~0);
-            DeviceDescription.InterfaceType = PCIBus;
-            DeviceDescription.DmaWidth = Width32Bits;
-            DeviceDescription.DmaSpeed = Compatible;
-            DeviceDescription.ScatterGather = TRUE;
-            DeviceDescription.Master = TRUE;
-            DeviceDescription.Dma32BitAddresses = TRUE;
-            DeviceDescription.AutoInitialize = FALSE;
-            DeviceDescription.MaximumLength = (ULONG) -1;
-    
-            //
-            // Get a DMA adapter object from the system.
-            //
-            m_DmaAdapterObject = IoGetDmaAdapter (
-                m_Device -> PhysicalDeviceObject,
-                &DeviceDescription,
-                &m_NumberOfMapRegisters
-                );
-    
-            if (!m_DmaAdapterObject) {
-                Status = STATUS_UNSUCCESSFUL;
-            }
-    
-        }
-    
-        if (NT_SUCCESS (Status)) {
-            //
-            // Initialize our DMA adapter object with AVStream.  This is 
-            // **ONLY** necessary **IF** you are doing DMA directly into
-            // capture buffers as this sample does.  For this,
-            // KSPIN_FLAG_GENERATE_MAPPINGS must be specified on a queue.
-            //
-    
-            //
-            // The (1 << 20) below is the maximum size of a single s/g mapping
-            // that this hardware can handle.  Note that I have pulled this
-            // number out of thin air for the "fake" hardware.
-            //
-            KsDeviceRegisterAdapterObject (
-                m_Device,
-                m_DmaAdapterObject,
-                (1 << 20),
-                sizeof (KSMAPPING)
-                );
-    
-        }
-#endif
+		SetupInterrupts(TranslatedResourceList, UntranslatedResourceList);
     }
     
     return Status;
@@ -1402,6 +1445,7 @@ CaptureDeviceDescriptor = {
 
 
 extern "C" DRIVER_INITIALIZE DriverEntry;
+const char * const dateTimeStr = "Built " __DATE__ ", " __TIME__ ".";
 
 extern "C"
 NTSTATUS
@@ -1432,6 +1476,10 @@ Return Value:
 --*/
 
 {
+	// Initialize WPP Tracing
+	WPP_INIT_TRACING(DriverObject, RegistryPath);
+	TraceInfo(DBG_INIT, "avsadma Driver - %s", dateTimeStr);
+
     //
     // Simply pass the device descriptor and parameters off to AVStream
     // to initialize us.  This will cause filter factories to be set up

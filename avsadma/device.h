@@ -20,6 +20,12 @@
 
 **************************************************************************/
 
+#define ADMA_MAX_DESCRIPTOR_NUM	(128UL)
+#define ADMA_DESCRIPTOR_OFFSET	(0x200)
+#define ADMA_ONE_DESCRIPTOR_MAX_TRANS_SIZE (1024UL * 1024UL - 4UL)
+#define ADMA_MAX_TRANSFER_SIZE  (ADMA_MAX_DESCRIPTOR_NUM * PAGE_SIZE)//(ADMA_MAX_DESCRIPTOR_NUM * ADMA_ONE_DESCRIPTOR_MAX_TRANS_SIZE)
+
+
 class CCaptureDevice :
     public IHardwareSink {
 
@@ -93,8 +99,21 @@ private:
 	UCHAR m_InterruptLevel;
 	ULONG m_InterruptVector;
 	KAFFINITY m_InterruptAffinity;
-	ULONG m_InterruptMode;
+	ULONG m_InterruptFlags;
+	UCHAR m_ShareDisposition;
+	USHORT m_MessageCount;
+	//KINTERRUPT_MODE m_InterruptMode;
 	PKINTERRUPT m_Interrupt;
+	ULONG m_InterruptType;
+	PIO_INTERRUPT_MESSAGE_INFO m_InterruptMessageTable;
+	static IO_DPC_ROUTINE AdmaDpcForIsr;
+	static KSERVICE_ROUTINE AdmaInterruptHandler;
+	static KMESSAGE_SERVICE_ROUTINE AdmaInterruptMessageService;
+
+	ULONG                   m_ScatterGatherListSize;
+	NPAGED_LOOKASIDE_LIST   m_SGListLookasideList;
+	PALLOCATE_COMMON_BUFFER AllocateCommonBuffer;
+	PFREE_COMMON_BUFFER     FreeCommonBuffer;
 
     //
     // Cleanup():
