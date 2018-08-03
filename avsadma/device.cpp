@@ -473,6 +473,51 @@ Return Value:
 
 /*************************************************/
 
+
+VOID
+CCaptureDevice::
+VideoCustomDpcRoutine(
+	_In_ struct _KDPC *Dpc,
+	_In_opt_ PVOID DeferredContext,
+	_In_opt_ PVOID SystemArgument1,
+	_In_opt_ PVOID SystemArgument2
+)
+
+/*++
+
+Routine Description:
+
+DPC callback for ISR.
+
+Arguments:
+
+DeviceObject - Pointer to the device object.
+
+Context - MiniportAdapterContext.
+
+Irp - Unused.
+
+Context - Pointer to FDO_DATA.
+
+Return Value:
+
+--*/
+{
+	CCaptureDevice *CapDevice = NULL;
+	ULONG MessageId;
+	CapDevice = reinterpret_cast <CCaptureDevice *> (DeferredContext);
+	MessageId = (ULONG)SystemArgument1;
+	NTSTATUS status = STATUS_SUCCESS;
+
+	TraceInfo(DBG_IRQ, "--> VideoCustomDpcRoutine %d\n", MessageId);
+
+	CapDevice->m_HardwareSimulation->FakeHardware();
+
+	TraceInfo(DBG_IRQ, "<-- AdmaDpcForIsr\n");
+}
+
+/*************************************************/
+
 BOOLEAN
 CCaptureDevice::
 AdmaInterruptHandler(
@@ -547,7 +592,11 @@ TRUE if our device is interrupting, FALSE otherwise.
 
 	TraceInfo(DBG_IRQ, "Requesting DPC MessageId %d\n", MessageId);
 
-	IoRequestDpc(CapDevice->m_Device->FunctionalDeviceObject, NULL, reinterpret_cast <PVOID> (CapDevice));
+	if (MessageId == 0) {
+		IoRequestDpc(CapDevice->m_Device->FunctionalDeviceObject, NULL, reinterpret_cast <PVOID> (CapDevice));
+	} else {
+		KeInsertQueueDpc(&CapDevice->m_VideoDpc, (PVOID)MessageId, NULL);
+	}
 
 	TraceInfo(DBG_IRQ, "<-- AdmaInterruptHandler\n");
 
@@ -579,9 +628,20 @@ SetupInterrupts(
 	// Disable interrupts here which is as soon as possible
 	//
 	// to do
+
+#if 0
 	IoInitializeDpcRequest(m_Device->FunctionalDeviceObject, 
 		reinterpret_cast <PIO_DPC_ROUTINE> (CCaptureDevice::AdmaDpcForIsr));
-
+#endif
+#if 0
+	KeInitializeDpc(&m_VideoDpc, 
+		reinterpret_cast <PKDEFERRED_ROUTINE> (CCaptureDevice::VideoCustomDpcRoutine), 
+		reinterpret_cast <PVOID> (this));
+#else
+	KeInitializeThreadedDpc(&m_VideoDpc,
+		reinterpret_cast <PKDEFERRED_ROUTINE> (CCaptureDevice::VideoCustomDpcRoutine),
+		reinterpret_cast <PVOID> (this));
+#endif
 	//
 	// Register the interrupt
 	//

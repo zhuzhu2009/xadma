@@ -110,6 +110,9 @@ private:
 	static KSERVICE_ROUTINE AdmaInterruptHandler;
 	static KMESSAGE_SERVICE_ROUTINE AdmaInterruptMessageService;
 
+	KDPC m_VideoDpc;
+	static KDEFERRED_ROUTINE VideoCustomDpcRoutine;
+
 	ULONG                   m_ScatterGatherListSize;
 	NPAGED_LOOKASIDE_LIST   m_SGListLookasideList;
 	PALLOCATE_COMMON_BUFFER AllocateCommonBuffer;
