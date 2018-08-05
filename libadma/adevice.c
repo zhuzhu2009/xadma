@@ -133,7 +133,7 @@ static NTSTATUS MapBARs(IN PADMA_DEVICE adma, IN WDFCMRESLIST ResourcesTranslate
             adma->numBars++;
 		} else if (resource->Type == CmResourceTypeMemoryLarge) {
 			if (resource->Flags & CM_RESOURCE_MEMORY_LARGE_40) {
-#if 1
+#if 0
 				adma->barLength[adma->numBars] = resource->u.Memory40.Length40 << 8;
 				adma->bar[adma->numBars] = MmMapIoSpace(resource->u.Memory40.Start,
 														resource->u.Memory40.Length40 << 8, MmNonCached);
@@ -141,7 +141,7 @@ static NTSTATUS MapBARs(IN PADMA_DEVICE adma, IN WDFCMRESLIST ResourcesTranslate
 				PHYSICAL_ADDRESS start;
 				start.QuadPart = resource->u.Memory40.Start.QuadPart;		
 				adma->barLength[adma->numBars] = 0x10000;//we only use part of it because customer design is ugly
-				start.QuadPart += 0x80000000LL;//offset to 2GB, customer design is stupid, I'll use only 2GB~2GB+64KB(0x10000) of 4GB
+				//start.QuadPart += 0x80000000LL;//offset to 2GB, customer design is stupid, I'll use only 2GB~2GB+64KB(0x10000) of 4GB
 				adma->bar[adma->numBars] = MmMapIoSpace(start,
 					0x10000, MmNonCached);
 #endif

@@ -29,7 +29,10 @@
 #include "avshws.h"
 #include <ksmedia.h>
 #include "ntintsafe.h"
-
+#include "trace.h"
+#ifdef DBG
+#include "capture.tmh"
+#endif
 /**************************************************************************
 
     PAGEABLE CODE
@@ -225,7 +228,12 @@ Return Value:
         Pin -> StreamHeaderSize = sizeof (KSSTREAM_HEADER) +
             sizeof (KS_FRAME_INFO);
 
-    }
+    }		
+
+	TraceVerbose(DBG_INIT, "pin create TimePerFrame=%lld ImageSize=%d Height=%d Width=%d",
+		VideoInfoHeader->AvgTimePerFrame, VideoInfoHeader->bmiHeader.biSizeImage,
+		ABS(VideoInfoHeader->bmiHeader.biHeight), VideoInfoHeader->bmiHeader.biWidth);
+
     return Status;
 }
 
@@ -339,7 +347,8 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
     PKSSTREAM_POINTER Leading;
 
-    _DbgPrintF(DEBUGLVL_VERBOSE, ("Process"));
+    //_DbgPrintF(DEBUGLVL_VERBOSE, ("Process"));
+	TraceVerbose(DBG_CAPTURE, "Process\n");
 
     Leading = KsPinGetLeadingEdgeStreamPointer (
         m_Pin,
@@ -434,6 +443,9 @@ Return Value:
                 Leading -> OffsetOut.Remaining
                 );
 
+		TraceVerbose(DBG_CAPTURE, "MappingsUsed=%d, Remaining=%d, Mappings=%p(%d), DataUsed=%d\n", 
+			MappingsUsed, Leading->OffsetOut.Remaining, Leading->OffsetOut.Mappings, 
+			Leading->OffsetOut.Count, ClonePointer->StreamHeader->DataUsed);
         //
         // In order to keep one clone per frame and simplify the fake DMA
         // logic, make a check to see if we completely used the mappings in
@@ -515,7 +527,8 @@ Return Value:
         m_PendIo = TRUE;
     }
 
-    _DbgPrintF(DEBUGLVL_VERBOSE, ("Leaving Process..."));
+    //_DbgPrintF(DEBUGLVL_VERBOSE, ("Leaving Process..."));
+	TraceVerbose(DBG_CAPTURE, "Leaving Process... status %x\n", Status);
     return Status;
 
 }

@@ -24,8 +24,8 @@
         WPP_DEFINE_BIT(DBG_INIT)        /* bit  0 = 0x00000001 */ \
         WPP_DEFINE_BIT(DBG_IRQ)         /* bit  1 = 0x00000002 */ \
         WPP_DEFINE_BIT(DBG_DMA)         /* bit  2 = 0x00000004 */ \
-        WPP_DEFINE_BIT(DBG_DESC)        /* bit  3 = 0x00000008 */ \
-        WPP_DEFINE_BIT(DBG_USER)        /* bit  4 = 0x00000010 */ \
+        WPP_DEFINE_BIT(DBG_CAPTURE)     /* bit  3 = 0x00000008 */ \
+        WPP_DEFINE_BIT(DBG_FILTER)      /* bit  4 = 0x00000010 */ \
         WPP_DEFINE_BIT(DBG_IO)          /* bit  5 = 0x00000014 */ \
         )
 

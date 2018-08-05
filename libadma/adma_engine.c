@@ -464,6 +464,7 @@ BOOLEAN ADMA_EngineProgramDma(IN WDFDMATRANSACTION Transaction, IN WDFDEVICE Dev
                  deviceOffset, SgList->NumberOfElements);
 
 	ULONG id = engine->sgdma->dmaLastPtr;// id = 0~127 or 0xFF
+	//SgList->NumberOfElements < ADMA_MAX_DESCRIPTOR_NUM, WDF help do this
     for (ULONG i = 0; i < SgList->NumberOfElements; i++) {
 		id = (id + 1) % ADMA_MAX_DESCRIPTOR_NUM;
         descriptor[id].control = LIMIT_TO_32((id << 18) | SgList->Elements[i].Length);

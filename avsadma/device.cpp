@@ -467,6 +467,7 @@ Return Value:
 
 	TraceInfo(DBG_IRQ, "--> AdmaDpcForIsr\n");
 
+	CapDevice->Interrupt();
 
 	TraceInfo(DBG_IRQ, "<-- AdmaDpcForIsr\n");
 }
@@ -506,7 +507,7 @@ Return Value:
 	CCaptureDevice *CapDevice = NULL;
 	ULONG MessageId;
 	CapDevice = reinterpret_cast <CCaptureDevice *> (DeferredContext);
-	MessageId = (ULONG)SystemArgument1;
+	MessageId = (ULONG)((ULONG_PTR)SystemArgument1);
 	NTSTATUS status = STATUS_SUCCESS;
 
 	TraceInfo(DBG_IRQ, "--> VideoCustomDpcRoutine %d\n", MessageId);
@@ -609,19 +610,11 @@ TRUE if our device is interrupting, FALSE otherwise.
 
 NTSTATUS 
 CCaptureDevice::
-SetupInterrupts(
-	IN PCM_RESOURCE_LIST TranslatedResourceList,
-	IN PCM_RESOURCE_LIST UntranslatedResourceList
-)
+SetupInterrupts()
 {
 	PAGED_CODE();
 
 	NTSTATUS status = STATUS_SUCCESS;
-	DEVICE_DESCRIPTION              deviceDescription;
-#if defined(DMA_VER2) // To avoid  unreferenced local variables error
-	ULONG                           SGMapRegsisters;
-	ULONG                           ScatterGatherListSize;
-#endif
 	IO_CONNECT_INTERRUPT_PARAMETERS interruptParams;
 	PVOID intrMsgConnectionContext;
 	//
@@ -723,6 +716,31 @@ SetupInterrupts(
 
 	//MP_SET_FLAG(FdoData, fMP_ADAPTER_INTERRUPT_IN_USE);
 
+End:
+	//
+	// If we have jumped here due to any kind of mapping or resource allocation
+	// failure, we should clean up. Since we know that if we fail Start-Device,
+	// the system is going to send Remove-Device request, we will defer the
+	// job of cleaning to NICUnmapHWResources which is called in the Remove path.
+	//
+	return status;
+}
+
+/*************************************************/
+
+
+NTSTATUS
+CCaptureDevice::
+SetupDma()
+{
+	PAGED_CODE();
+
+	NTSTATUS status = STATUS_SUCCESS;
+	DEVICE_DESCRIPTION              deviceDescription;
+#if defined(DMA_VER2) // To avoid  unreferenced local variables error
+	ULONG                           SGMapRegsisters;
+	ULONG                           ScatterGatherListSize;
+#endif
 	//
 	// Zero out the entire structure first.
 	//
@@ -811,7 +829,7 @@ SetupInterrupts(
 	//
 
 	PUNKNOWN DeviceUnk = KsDeviceGetOuterUnknown(
-			m_Device);
+		m_Device);
 
 	// Register the DMA adapter with AVStream
 	IKsDeviceFunctions *DeviceFunctions;
@@ -831,7 +849,7 @@ SetupInterrupts(
 			sizeof(KSMAPPING)
 		);
 		DeviceFunctions->Release();
-}
+	}
 
 	// If this call fails, call KsDeviceRegisterAdapterObject to
 	// preserve downlevel load compatibility.
@@ -843,6 +861,29 @@ SetupInterrupts(
 			sizeof(KSMAPPING)
 		);
 	}
+
+	// allocate host-side rd buffer for descriptors
+	m_RdDescBufferSize = sizeof(ADMA_RESULT) + 
+		ADMA_MAX_DESCRIPTOR_NUM * sizeof(ADMA_DESCRIPTOR);//add by zc
+	m_RdDescBufferVa = AllocateCommonBuffer(m_DmaAdapterObject, 
+		m_RdDescBufferSize, &m_RdDescBufferPa, FALSE);
+	if (!m_RdDescBufferVa) {
+		status = STATUS_INSUFFICIENT_RESOURCES;
+		TraceError(DBG_INIT, "AllocateCommonBuffer failed: %!STATUS!", status);
+		return status;
+	}
+	RtlZeroMemory(m_RdDescBufferVa, m_RdDescBufferSize);
+	// allocate host-side wr buffer for descriptors
+	m_WrDescBufferSize = sizeof(ADMA_RESULT) + 
+		ADMA_MAX_DESCRIPTOR_NUM * sizeof(ADMA_DESCRIPTOR);//add by zc
+	m_WrDescBufferVa = AllocateCommonBuffer(m_DmaAdapterObject, 
+		m_WrDescBufferSize, &m_WrDescBufferPa, FALSE);
+	if (!m_WrDescBufferVa) {
+		status = STATUS_INSUFFICIENT_RESOURCES;
+		TraceError(DBG_INIT, "AllocateCommonBuffer failed: %!STATUS!", status);
+		return status;
+	}
+	RtlZeroMemory(m_WrDescBufferVa, m_WrDescBufferSize);
 
 End:
 	//
@@ -921,6 +962,12 @@ Return Value:
     //
     if (NT_SUCCESS(Status) && (!m_Device -> Started)) {
 
+		MapResources(TranslatedResourceList, UntranslatedResourceList);
+
+		SetupInterrupts();
+
+		SetupDma();
+
         m_HardwareSimulation = new (NonPagedPoolNx, 'miSH') CHardwareSimulation (this);
         if (!m_HardwareSimulation) {
             //
@@ -938,11 +985,42 @@ Return Value:
             if (!NT_SUCCESS (Status)) {
                 delete m_HardwareSimulation;
             }
+
+
+			m_HardwareSimulation->m_AdmaRdSgdmaReg = (PADMA_SGDMA_REGS)m_DmaBar;
+			m_HardwareSimulation->m_AdmaWrSgdmaReg = (PADMA_SGDMA_REGS)((PUCHAR)m_DmaBar + ADMA_DIR_REG_OFFSET);
+			m_HardwareSimulation->m_AdmaRdResult = (PADMA_RESULT)m_RdDescBufferVa;
+			m_HardwareSimulation->m_AdmaRdDescriptor = (PADMA_DESCRIPTOR)((PUCHAR)m_RdDescBufferVa + ADMA_DESCRIPTOR_OFFSET);
+			m_HardwareSimulation->m_AdmaWrResult = (PADMA_RESULT)m_WrDescBufferVa;
+			m_HardwareSimulation->m_AdmaWrDescriptor = (PADMA_DESCRIPTOR)((PUCHAR)m_WrDescBufferVa + ADMA_DESCRIPTOR_OFFSET);
+
+			for (ULONG i = 0; i < FRAME_BUFFER_NUM; i++)
+			{
+				m_HardwareSimulation->m_FrameBufferReg[i] = (PFRAME_BUFFER_REGS)((PUCHAR)m_VideoBar + FRAME_BUFFER_REG_ADDR(i));
+			}
+
+			// give hw the physical start address of the descriptor buffer
+			m_HardwareSimulation->m_AdmaRdSgdmaReg->rcStatusDescLo = m_RdDescBufferPa.LowPart;
+			m_HardwareSimulation->m_AdmaRdSgdmaReg->rcStatusDescHi = m_RdDescBufferPa.HighPart;// depends on transfer - set later in ProgramDMA
+			m_HardwareSimulation->m_AdmaRdSgdmaReg->epDescFifoLo = ADMA_RD_DTS_ADDR;
+			m_HardwareSimulation->m_AdmaRdSgdmaReg->epDescFifoHi = 0;
+			TraceVerbose(DBG_INIT, "rd status and descriptor buffer at 0x%08x%08x, size=%lld",
+				m_HardwareSimulation->m_AdmaRdSgdmaReg->rcStatusDescLo, 
+				m_HardwareSimulation->m_AdmaRdSgdmaReg->rcStatusDescHi, 
+				m_RdDescBufferSize);
+
+			// give hw the physical start address of the descriptor buffer
+			m_HardwareSimulation->m_AdmaWrSgdmaReg->rcStatusDescLo = m_WrDescBufferPa.LowPart;
+			m_HardwareSimulation->m_AdmaWrSgdmaReg->rcStatusDescHi = m_WrDescBufferPa.HighPart;// depends on transfer - set later in ProgramDMA
+			m_HardwareSimulation->m_AdmaWrSgdmaReg->epDescFifoLo = ADMA_WR_DTS_ADDR;
+			m_HardwareSimulation->m_AdmaWrSgdmaReg->epDescFifoHi = 0;
+			TraceVerbose(DBG_INIT, "wr status and descriptor buffer at 0x%08x%08x, size=%lld",
+				m_HardwareSimulation->m_AdmaWrSgdmaReg->rcStatusDescLo, 
+				m_HardwareSimulation->m_AdmaWrSgdmaReg->rcStatusDescHi,
+				m_WrDescBufferSize);
+
         }
 		
-		MapResources(TranslatedResourceList, UntranslatedResourceList);
-
-		SetupInterrupts(TranslatedResourceList, UntranslatedResourceList);
     }
     
     return Status;
@@ -979,7 +1057,20 @@ Return Value:
     PAGED_CODE();
 
     if (m_DmaAdapterObject) {
-        //
+
+ 		if (m_RdDescBufferVa) {
+			FreeCommonBuffer(m_DmaAdapterObject, m_RdDescBufferSize, 
+				m_RdDescBufferPa, m_RdDescBufferVa, FALSE);
+			m_RdDescBufferVa = NULL;
+		}
+
+		if (m_WrDescBufferVa) {
+			FreeCommonBuffer(m_DmaAdapterObject, m_WrDescBufferSize,
+				m_WrDescBufferPa, m_WrDescBufferVa, FALSE);
+			m_WrDescBufferVa = NULL;
+		}
+
+       //
         // Return the DMA adapter back to the system.
         //
         m_DmaAdapterObject -> DmaOperations -> 
@@ -988,6 +1079,7 @@ Return Value:
         m_DmaAdapterObject = NULL;
     }
 
+	UnmapResources();
 }
 
 /*************************************************/

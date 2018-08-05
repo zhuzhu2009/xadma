@@ -23,7 +23,10 @@
 **************************************************************************/
 
 #include "avshws.h"
-
+#include "trace.h"
+#ifdef DBG
+#include "hwsim.tmh"
+#endif
 
 /*************************************************/
 KDEFERRED_ROUTINE SimulatedInterrupt;
@@ -37,10 +40,11 @@ SimulatedInterrupt (
     )
 {
     CHardwareSimulation* HardwareSim = (CHardwareSimulation*)DeferredContext;
-    
     if (HardwareSim)
     {
+#if 0
         HardwareSim -> FakeHardware ();
+#endif
     }
 }
 
@@ -62,7 +66,7 @@ CHardwareSimulation (
     IN IHardwareSink *HardwareSink
     ) :
     m_HardwareSink (HardwareSink),
-    m_ScatterGatherMappingsMax (SCATTER_GATHER_MAPPINGS_MAX)
+    m_ScatterGatherMappingsMax (ADMA_MAX_DESCRIPTOR_NUM/*SCATTER_GATHER_MAPPINGS_MAX*/)
 
 /*++
 
@@ -206,6 +210,9 @@ Return Value:
     m_ImageSize = ImageSize;
     m_Height = Height;
     m_Width = Width;
+
+	TraceVerbose(DBG_INIT, "hw start TimePerFrame=%lld ImageSize=%d Height=%d Width=%d",
+		TimePerFrame, ImageSize, Height, Width);
 
     InitializeListHead (&m_ScatterGatherMappings);
     m_NumMappingsCompleted = 0;
@@ -556,77 +563,37 @@ Return Value:
     // If I could just remap physical in the list to virtual easily here,
     // I wouldn't need to do it.
     //
-#if !defined(_X86_)
-    do
-    {
-        PSCATTER_GATHER_ENTRY Entry =
-            reinterpret_cast <PSCATTER_GATHER_ENTRY> (
-                ExAllocateFromNPagedLookasideList (
-                    &m_ScatterGatherLookaside
-                    )
-                );
 
-        if (!Entry) {
-            break;
-        }
-        Entry -> Virtual    = *Buffer;
-        Entry -> ByteCount  = MappingsCount;
-        Entry -> CloneEntry = Clone;
-
-        //
-        // Move forward a specific number of bytes in chunking this into
-        // mapping sized va buffers.
-        //
-        *Buffer += MappingsCount;
-        Mappings = reinterpret_cast <PKSMAPPING> (
-            (reinterpret_cast <PUCHAR> (Mappings) + MappingStride)
+    PSCATTER_GATHER_ENTRY Entry =
+        reinterpret_cast <PSCATTER_GATHER_ENTRY> (
+            ExAllocateFromNPagedLookasideList (
+                &m_ScatterGatherLookaside
+                )
             );
 
-        InsertTailList (&m_ScatterGatherMappings, &(Entry -> ListEntry));
-        MappingsInserted = MappingsCount;
-        m_ScatterGatherMappingsQueued++;
-        m_ScatterGatherBytesQueued += MappingsCount;
-
-   }
-    while(FALSE);
-
-#else 
-	for (ULONG MappingNum = 0; 
-        MappingNum < MappingsCount &&
-            m_ScatterGatherMappingsQueued < m_ScatterGatherMappingsMax; 
-        MappingNum++) {
-
-        PSCATTER_GATHER_ENTRY Entry =
-            reinterpret_cast <PSCATTER_GATHER_ENTRY> (
-                ExAllocateFromNPagedLookasideList (
-                    &m_ScatterGatherLookaside
-                    )
-                );
-
-        if (!Entry) {
-            break;
-        }
-
-        Entry -> Virtual    = *Buffer;
-        Entry -> ByteCount  = Mappings -> ByteCount;
-
-        //
-        // Move forward a specific number of bytes in chunking this into
-        // mapping sized va buffers.
-        //
-        *Buffer += Entry -> ByteCount;
-        Mappings = reinterpret_cast <PKSMAPPING> (
-            (reinterpret_cast <PUCHAR> (Mappings) + MappingStride)
-            );
-
-        InsertTailList (&m_ScatterGatherMappings, &(Entry -> ListEntry));
-        MappingsInserted++;
-        m_ScatterGatherMappingsQueued++;
-        m_ScatterGatherBytesQueued += Entry -> ByteCount;
-
+    if (!Entry) {
+        goto End;
     }
-#endif
+    Entry -> Virtual    = *Buffer;
+    Entry -> ByteCount  = MappingsCount;
+    Entry -> CloneEntry = Clone;
 
+    //
+    // Move forward a specific number of bytes in chunking this into
+    // mapping sized va buffers.
+    //
+	for (ULONG MappingNum = 0; MappingNum < MappingsCount; MappingNum++) {
+		*Buffer += Mappings->ByteCount;
+		Mappings = reinterpret_cast <PKSMAPPING> (
+			(reinterpret_cast <PUCHAR> (Mappings) + MappingStride)
+			);
+	}
+    InsertTailList (&m_ScatterGatherMappings, &(Entry -> ListEntry));
+    MappingsInserted = MappingsCount;
+    m_ScatterGatherMappingsQueued++;
+    m_ScatterGatherBytesQueued += MappingsCount;
+
+End:
     KeReleaseSpinLock (&m_ListLock, Irql);
 
     return MappingsInserted;
@@ -677,9 +644,9 @@ Return Value:
     // This could be enforced by only programming scatter / gather mappings
     // for a buffer if all of them fit in the table also...
     //
-    while (BufferRemaining &&
-        m_ScatterGatherMappingsQueued > 0 &&
-        m_ScatterGatherBytesQueued >= BufferRemaining) {
+    while (/*BufferRemaining &&*/
+        m_ScatterGatherMappingsQueued > 0 /*&&
+        m_ScatterGatherBytesQueued >= BufferRemaining*/) {
 
         LIST_ENTRY *listEntry = RemoveHeadList (&m_ScatterGatherMappings);
         m_ScatterGatherMappingsQueued--;
@@ -692,7 +659,7 @@ Return Value:
                     ListEntry
                     )
                 );
-
+#if 0
         //
         // Since we're software, we'll be accessing this by virtual address...
         //
@@ -700,30 +667,30 @@ Return Value:
             (BufferRemaining < SGEntry -> ByteCount) ?
             BufferRemaining :
             SGEntry -> ByteCount;
+#endif
+		TraceVerbose(DBG_DMA, "device num mapping=%d, remaining=%d", SGEntry->ByteCount, 
+			SGEntry->CloneEntry->OffsetOut.Remaining);
 
-        LONG Width = m_Width*(m_ImageSynth->GetBytesPerPixel());
+		ULONG id = m_AdmaWrSgdmaReg->dmaLastPtr;// id = 0~127 or 0xFF
+		ULONG deviceOffset = m_FrameBufferReg[0]->frameStartAddr;
+		PKSMAPPING ksMapping = SGEntry->CloneEntry->OffsetOut.Mappings;
+		for (ULONG i = 0; i < SGEntry->ByteCount; i++) {
+			//SgList->NumberOfElements < ADMA_MAX_DESCRIPTOR_NUM, WDF help do this
 
-        LONG Stride = Width;
-        if(SGEntry->CloneEntry->StreamHeader->Size >= sizeof(KSSTREAM_HEADER)+sizeof(KS_FRAME_INFO))
-        {
-            PKS_FRAME_INFO FrameInfo = reinterpret_cast <PKS_FRAME_INFO> (SGEntry->CloneEntry->StreamHeader+1);
-            if(FrameInfo->lSurfacePitch != 0)
-            {
-                Stride = FrameInfo->lSurfacePitch;
-                if(FrameInfo->lSurfacePitch < 0)
-                {
-                    Stride = -Stride;
-                }
-            }
-        }
+			id = (id + 1) % ADMA_MAX_DESCRIPTOR_NUM;
+			m_AdmaWrDescriptor[id].control = (id << 18) | ksMapping[i].ByteCount;
+			m_AdmaWrDescriptor[id].srcAddrLo = deviceOffset;
+			m_AdmaWrDescriptor[id].srcAddrHi = 0;
+			m_AdmaWrDescriptor[id].dstAddrLo = ksMapping[i].PhysicalAddress.LowPart;
+			m_AdmaWrDescriptor[id].dstAddrHi = ksMapping[i].PhysicalAddress.LowPart;
+			deviceOffset += ksMapping[i].ByteCount;
+		}
 
-        for(ULONG y = 0; y < m_Height; y++)
-        {
-            RtlCopyMemory((SGEntry->Virtual+(ULONG)Stride*y), Buffer, Width);
-            Buffer += Width;
-            BytesToCopy -= Width;
-            BufferRemaining -= Width;
-        }
+		MemoryBarrier();
+		m_AdmaWrSgdmaReg->dmaLastPtr = id;
+		MemoryBarrier();
+
+		// wait for interrupt
 
         m_NumMappingsCompleted++;
         m_ScatterGatherBytesQueued -= SGEntry -> ByteCount;
@@ -740,8 +707,13 @@ Return Value:
     
     KeReleaseSpinLockFromDpcLevel (&m_ListLock);
 
-    if (BufferRemaining) return STATUS_INSUFFICIENT_RESOURCES;
-    else return STATUS_SUCCESS;
+	if (BufferRemaining) {
+		TraceVerbose(DBG_DMA, "error BufferRemaining=0x%x, m_ScatterGatherMappingsQueued=0x%x, m_ScatterGatherBytesQueued=0x%x\n",
+			BufferRemaining, m_ScatterGatherMappingsQueued, m_ScatterGatherBytesQueued);
+		return STATUS_INSUFFICIENT_RESOURCES;
+	} else {
+		return STATUS_SUCCESS;
+	}
     
 }
 
@@ -771,61 +743,12 @@ Return Value:
 --*/
 
 {
-#if 0
-    m_InterruptTime++;
-
     //
     // The hardware can be in a pause state in which case, it issues interrupts
     // but does not complete mappings.  In this case, don't bother synthesizing
     // a frame and doing the work of looking through the mappings table.
     //
     if (m_HardwareState == HardwareRunning) {
-    
-        //
-        // Generate a "time stamp" just to overlay it onto the capture image.
-        // It makes it more exciting than bars that do nothing.
-        //
-        LONGLONG PtsRel = ((m_InterruptTime + 1) * m_TimePerFrame);
-    
-        ULONG Min = (ULONG)(PtsRel / 600000000);
-        ULONG RemMin = (ULONG)(PtsRel % 600000000);
-        ULONG Sec = (ULONG)(RemMin / 10000000);
-        ULONG RemSec = (ULONG)(RemMin % 10000000);
-        ULONG Hund = (ULONG)(RemSec / 100000);
-    
-        //
-        // Synthesize a buffer in scratch space.
-        //
-        m_ImageSynth -> SynthesizeBars ();
-    
-        CHAR Text [256];
-        Text[0] = '\0';
-        (void) RtlStringCbPrintfA(Text, sizeof(Text), "%ld:%02ld.%02ld", Min, Sec, Hund);
-    
-        //
-        // Overlay a clock onto the scratch space image.
-        //
-        m_ImageSynth -> OverlayText (
-            POSITION_CENTER,
-            (m_Height - 28),
-            1,
-            Text,
-            BLACK,	
-            WHITE
-            );
-    
-        //
-        // Overlay a counter of skipped frames onto the scratch image.
-        //
-        (void) RtlStringCbPrintfA(Text, sizeof(Text), "Skipped: %ld", m_NumFramesSkipped);
-        m_ImageSynth -> OverlayText (
-            10,
-            10,
-            1,
-            Text,
-            TRANSPARENT,
-            BLUE
-            );
 
         //
         // Fill scatter gather buffers
@@ -835,28 +758,20 @@ Return Value:
         }
 
     }
-        
+
+#if 0 //move to pcie dma interrupt
     //
     // Issue an interrupt to our hardware sink.  This is a "fake" interrupt.
     // It will occur at DISPATCH_LEVEL.
     //
     m_HardwareSink -> Interrupt ();
+#endif
 
     //
     // Reschedule the timer if the hardware isn't being stopped.
     //
-    if (!m_StopHardware) {
+    if (m_StopHardware) {
 
-        //
-        // Reschedule the timer for the next interrupt time.
-        //
-        LARGE_INTEGER NextTime;
-        NextTime.QuadPart = m_StartTime.QuadPart + 
-            (m_TimePerFrame * (m_InterruptTime + 1));
-
-        KeSetTimer (&m_IsrTimer, NextTime, &m_IsrFakeDpc);
-        
-    } else {
         //
         // If someone is waiting on the hardware to stop, raise the stop
         // event and clear the flag.
@@ -864,5 +779,4 @@ Return Value:
         m_StopHardware = FALSE;
         KeSetEvent (&m_HardwareEvent, IO_NO_INCREMENT, FALSE);
     }
-#endif
 }

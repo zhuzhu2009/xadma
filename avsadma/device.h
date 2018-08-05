@@ -20,12 +20,6 @@
 
 **************************************************************************/
 
-#define ADMA_MAX_DESCRIPTOR_NUM	(128UL)
-#define ADMA_DESCRIPTOR_OFFSET	(0x200)
-#define ADMA_ONE_DESCRIPTOR_MAX_TRANS_SIZE (1024UL * 1024UL - 4UL)
-#define ADMA_MAX_TRANSFER_SIZE  (ADMA_MAX_DESCRIPTOR_NUM * PAGE_SIZE)//(ADMA_MAX_DESCRIPTOR_NUM * ADMA_ONE_DESCRIPTOR_MAX_TRANS_SIZE)
-
-
 class CCaptureDevice :
     public IHardwareSink {
 
@@ -94,6 +88,8 @@ private:
 	ULONG m_DmaBarLen;
 	PVOID m_VideoBar; // kernel virtual address of BAR
 	ULONG m_VideoBarLen;
+	//PADMA_SGDMA_REGS m_AdmaRdSgdmaReg;
+	//PADMA_SGDMA_REGS m_AdmaWrSgdmaReg;
 
 	ULONG m_NumberOfIntrs = 0;
 	UCHAR m_InterruptLevel;
@@ -109,7 +105,6 @@ private:
 	static IO_DPC_ROUTINE AdmaDpcForIsr;
 	static KSERVICE_ROUTINE AdmaInterruptHandler;
 	static KMESSAGE_SERVICE_ROUTINE AdmaInterruptMessageService;
-
 	KDPC m_VideoDpc;
 	static KDEFERRED_ROUTINE VideoCustomDpcRoutine;
 
@@ -117,6 +112,12 @@ private:
 	NPAGED_LOOKASIDE_LIST   m_SGListLookasideList;
 	PALLOCATE_COMMON_BUFFER AllocateCommonBuffer;
 	PFREE_COMMON_BUFFER     FreeCommonBuffer;
+	PVOID                   m_RdDescBufferVa;
+	ULONG                   m_RdDescBufferSize;
+	PHYSICAL_ADDRESS        m_RdDescBufferPa;
+	PVOID                   m_WrDescBufferVa;
+	ULONG                   m_WrDescBufferSize;
+	PHYSICAL_ADDRESS        m_WrDescBufferPa;
 
     //
     // Cleanup():
@@ -156,16 +157,22 @@ private:
 	UnmapResources();
 
 	//
-	// MapResources():
+	// SetupInterrupts():
 	//
 	// This is the Pnp start routine for our simulated hardware.  Note that
 	// DispatchStart bridges to here in the context of the CCaptureDevice.
 	//
 	NTSTATUS
-	SetupInterrupts(
-		IN PCM_RESOURCE_LIST TranslatedResourceList,
-		IN PCM_RESOURCE_LIST UntranslatedResourceList
-		);
+	SetupInterrupts();
+
+	//
+	// SetupDma():
+	//
+	// This is the Pnp start routine for our simulated hardware.  Note that
+	// DispatchStart bridges to here in the context of the CCaptureDevice.
+	//
+	NTSTATUS
+	SetupDma();
 
     //
     // PnpStart():

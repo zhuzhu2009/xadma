@@ -23,6 +23,71 @@
 
 **************************************************************************/
 
+#define ADMA_MAX_DESCRIPTOR_NUM	(128UL)
+#define ADMA_DESCRIPTOR_OFFSET	(0x200)
+#define ADMA_ONE_DESCRIPTOR_MAX_TRANS_SIZE (1024UL * 1024UL - 4UL)
+#define ADMA_MAX_TRANSFER_SIZE  (ADMA_MAX_DESCRIPTOR_NUM * PAGE_SIZE)//(ADMA_MAX_DESCRIPTOR_NUM * ADMA_ONE_DESCRIPTOR_MAX_TRANS_SIZE)
+#define ADMA_RD_DTS_ADDR		(0x80000000UL)
+#define ADMA_WR_DTS_ADDR		(0x80002000UL)
+#define ADMA_DIR_REG_OFFSET		(0x100)
+
+#define FRAME_BUFFER_NUM			5
+#define FRAME_BUFFER_REG_ADDR(x)	(0x5000 + x * 0x20)
+
+#pragma pack(1)
+
+/// H2C/C2H SGDMA Registers (H2C: 0x0, C2H:0x100)
+typedef struct {
+	UINT32 rcStatusDescLo;//0x00
+	UINT32 rcStatusDescHi;
+	UINT32 epDescFifoLo;
+	UINT32 epDescFifoHi;
+	UINT32 dmaLastPtr;
+	UINT32 tableSize;
+	UINT32 control;
+	UINT32 reserved1[57];//0xFC
+} ADMA_SGDMA_REGS, *PADMA_SGDMA_REGS;
+
+/// \brief Descriptor for a single contiguous memory block transfer.
+///
+/// Multiple descriptors are linked a 'next' pointer. An additional extra adjacent number gives the 
+/// amount of subsequent contiguous descriptors. The descriptors are in root complex memory, and the
+/// bytes in the 32-bit words must be in little-endian byte ordering.
+typedef struct adma_descriptor_t {//offset 0x200 from RC Read Descriptor Base or RC Write Descriptor Base registers
+	UINT32 srcAddrLo; // source address (low 32-bit)
+	UINT32 srcAddrHi; // source address (high 32-bit)
+	UINT32 dstAddrLo; // destination address (low 32-bit)
+	UINT32 dstAddrHi; // destination address (high 32-bit)
+					  // next descriptor in the single-linked list of descriptors, 
+					  // this is the bus address of the next descriptor in the root complex memory.
+	UINT32 control;
+	UINT32 reserved[3];//padding total 32bytes
+} ADMA_DESCRIPTOR, *PADMA_DESCRIPTOR;
+
+/// Result buffer of the streaming DMA operation. 
+/// The ADMA IP core writes the result of the DMA transfer to the host memory
+typedef struct {//start from RC Read Descriptor Base or RC Write Descriptor Base registers
+	UINT32 status[ADMA_MAX_DESCRIPTOR_NUM];
+} ADMA_RESULT, *PADMA_RESULT;
+
+/// Altera VIP Frame Buffer II IP Registers
+typedef struct {
+	UINT32 control;//0x00
+	UINT32 status;
+	UINT32 interrupt;
+	UINT32 frameCount;
+	UINT32 dropRepeatCount;
+	UINT32 frameInfo;
+	UINT32 frameStartAddr;
+	UINT32 frameReader;//0xFC
+	UINT32 misc;
+	UINT32 lockEn;
+	UINT32 inputFrameRate;
+	UINT32 outputFrameRate;
+} FRAME_BUFFER_REGS, *PFRAME_BUFFER_REGS;
+
+#pragma pack()
+
 //
 // SCATTER_GATHER_MAPPINGS_MAX:
 //
@@ -160,6 +225,14 @@ private:
         );
 
 public:
+
+	PADMA_SGDMA_REGS m_AdmaRdSgdmaReg;
+	PADMA_SGDMA_REGS m_AdmaWrSgdmaReg;
+	PADMA_DESCRIPTOR m_AdmaRdDescriptor;
+	PADMA_DESCRIPTOR m_AdmaWrDescriptor;
+	PADMA_RESULT m_AdmaRdResult;
+	PADMA_RESULT m_AdmaWrResult;
+	PFRAME_BUFFER_REGS m_FrameBufferReg[FRAME_BUFFER_NUM];
 
     LONG GetSkippedFrameCount()
     {
