@@ -23,10 +23,15 @@
 
 **************************************************************************/
 
-#define ADMA_MAX_DESCRIPTOR_NUM	(128UL)
+//#define ALTERA_ARRIA10
+#define ALTERA_CYCLONE4
+
+#if defined(ALTERA_ARRIA10)
+// a10 pcie dma
+#define HW_MAX_DESCRIPTOR_NUM	(128UL)
 #define ADMA_DESCRIPTOR_OFFSET	(0x200)
 #define ADMA_ONE_DESCRIPTOR_MAX_TRANS_SIZE (1024UL * 1024UL - 4UL)
-#define ADMA_MAX_TRANSFER_SIZE  (ADMA_MAX_DESCRIPTOR_NUM * PAGE_SIZE)//(ADMA_MAX_DESCRIPTOR_NUM * ADMA_ONE_DESCRIPTOR_MAX_TRANS_SIZE)
+#define HW_MAX_TRANSFER_SIZE  (HW_MAX_DESCRIPTOR_NUM * PAGE_SIZE)//(ADMA_MAX_DESCRIPTOR_NUM * ADMA_ONE_DESCRIPTOR_MAX_TRANS_SIZE)
 #define ADMA_RD_DTS_ADDR		(0x80000000UL)
 #define ADMA_WR_DTS_ADDR		(0x80002000UL)
 #define ADMA_DIR_REG_OFFSET		(0x100)
@@ -36,6 +41,7 @@
 
 #pragma pack(1)
 
+// a10 pcie dma
 /// H2C/C2H SGDMA Registers (H2C: 0x0, C2H:0x100)
 typedef struct {
 	UINT32 rcStatusDescLo;//0x00
@@ -70,6 +76,135 @@ typedef struct {//start from RC Read Descriptor Base or RC Write Descriptor Base
 	UINT32 status[ADMA_MAX_DESCRIPTOR_NUM];
 } ADMA_RESULT, *PADMA_RESULT;
 
+#pragma pack()
+
+#elif defined(ALTERA_CYCLONE4)
+#define HW_MAX_DESCRIPTOR_NUM				(1024UL)
+#define HW_MAX_TRANSFER_SIZE  (HW_MAX_DESCRIPTOR_NUM * PAGE_SIZE)
+
+// c4 sgdma dispatcher
+#define SGDMA_DESCRIPTOR_REG_OFFSET			(0x4000)
+#define SGDMA_CSR_REG_OFFSET				(0x40C0)
+#define FRAME_BUFFER_REG_ADDR				(0x5000)
+
+/*
+Descriptor formats:
+
+Standard Format:
+
+Offset         |             3                 2                 1                   0
+--------------------------------------------------------------------------------------
+0x0           |                              Read Address[31..0]
+0x4           |                              Write Address[31..0]
+0x8           |                                Length[31..0]
+0xC           |                                Control[31..0]
+
+Extended Format:
+
+Offset         |               3                           2                           1                          0
+-------------------------------------------------------------------------------------------------------------------
+0x0           |                                                  Read Address[31..0]
+0x4           |                                                  Write Address[31..0]
+0x8           |                                                    Length[31..0]
+0xC           |      Write Burst Count[7..0]  |  Read Burst Count[7..0]  |           Sequence Number[15..0]
+0x10          |                      Write Stride[15..0]                 |              Read Stride[15..0]
+0x14          |                                                      <reserved>
+0x18          |                                                      <reserved>
+0x1C          |                                                     Control[31..0]
+
+Note:  The control register moves from offset 0xC to 0x1C depending on the format used
+
+*/
+
+#pragma pack(1)
+// c4 sgdma dispatcher, for c4, descriptor is located on ep memory not in host memory
+// use this structure if you haven't enabled the enhanced features
+typedef struct {
+	UINT32 readAddress;
+	UINT32 writeAddress;
+	UINT32 transferLength;
+	UINT32 control;
+} SGDMA_STANDARD_DESCRIPTOR, *PSGDMA_STANDARD_DESCRIPTOR;
+
+// use ths structure if you have enabled the enhanced features (only the elements enabled in hardware will be used)
+typedef struct {
+	UINT32 readAddress;
+	UINT32 writeAddress;
+	UINT32 transferLength;
+	UINT32 snAndRwBurst;
+	UINT32 rwStride;
+	UINT32 reserved[2];  // in a later version this will be optionally used, for now it's ignored by the hardware
+	UINT32 control;
+} SGDMA_EXTEND_DESCRIPTOR, *PSGDMA_EXTEND_DESCRIPTOR;
+
+// this struct should only be used if response information is enabled
+typedef struct {
+	UINT32 actualBytesTransferred;
+	UINT32 status;
+} SGDMA_RESPONSE, *PSGDMA_RESPONSE;
+/*
+Enhanced features off:
+
+Bytes     Access Type     Description
+-----     -----------     -----------
+0-3       R/Clr           Status(1)
+4-7       R/W             Control(2)
+8-12      R               Descriptor Fill Level(write fill level[15:0], read fill level[15:0])
+13-15     R               Response Fill Level[15:0]
+16-31     N/A             <Reserved>
+
+
+Enhanced features on:
+
+Bytes     Access Type     Description
+-----     -----------     -----------
+0-3       R/Clr           Status(1)
+4-7       R/W             Control(2)
+8-12      R               Descriptor Fill Level (write fill level[15:0], read fill level[15:0])
+13-15     R               Response Fill Level[15:0]
+16-20     R               Sequence Number (write sequence number[15:0], read sequence number[15:0])
+21-31     N/A             <Reserved>
+
+(1)  Writing a '1' to the interrupt bit of the status register clears the interrupt bit (when applicable), all other bits are unaffected by writes
+(2)  Writing to the software reset bit will clear the entire register (as well as all the registers for the entire SGDMA)
+
+Status Register:
+
+Bits      Description
+----      -----------
+0         Busy
+1         Descriptor Buffer Empty
+2         Descriptor Buffer Full
+3         Response Buffer Empty
+4         Response Buffer Full
+5         Stop State
+6         Reset State
+7         Stopped on Error
+8         Stopped on Early Termination
+9         IRQ
+10-31     <Reserved>
+
+Control Register:
+
+Bits      Description
+----      -----------
+0         Stop (will also be set if a stop on error/early termination condition occurs)
+1         Software Reset
+2         Stop on Error
+3         Stop on Early Termination
+4         Global Interrupt Enable Mask
+5         Stop dispatcher (stops the dispatcher from issuing more read/write commands)
+6-31      <Reserved>
+*/
+// use this structure if you haven't enabled the enhanced features
+typedef struct {
+	UINT32 status;
+	UINT32 control;
+	UINT32 rwFillLevel;
+	UINT32 squenceNum;
+	UINT32 reserved[3];
+} SGDMA_CSR, *PSGDMA_CSR;
+
 /// Altera VIP Frame Buffer II IP Registers
 typedef struct {
 	UINT32 control;//0x00
@@ -87,6 +222,9 @@ typedef struct {
 } FRAME_BUFFER_REGS, *PFRAME_BUFFER_REGS;
 
 #pragma pack()
+#else
+#error "Please define FPGA type"
+#endif
 
 //
 // SCATTER_GATHER_MAPPINGS_MAX:
@@ -99,7 +237,7 @@ typedef struct {
 //     2) the fake hardware implementation requires at least one frame's
 //            worth of s/g entries to generate a frame
 //
-#define SCATTER_GATHER_MAPPINGS_MAX 128
+#define SCATTER_GATHER_MAPPINGS_MAX HW_MAX_DESCRIPTOR_NUM //128
 
 //
 // SCATTER_GATHER_ENTRY:
@@ -225,7 +363,8 @@ private:
         );
 
 public:
-
+#if defined(ALTERA_ARRIA10)
+	// a10 pcie dma
 	PADMA_SGDMA_REGS m_AdmaRdSgdmaReg;
 	PADMA_SGDMA_REGS m_AdmaWrSgdmaReg;
 	PADMA_DESCRIPTOR m_AdmaRdDescriptor;
@@ -233,6 +372,16 @@ public:
 	PADMA_RESULT m_AdmaRdResult;
 	PADMA_RESULT m_AdmaWrResult;
 	PFRAME_BUFFER_REGS m_FrameBufferReg[FRAME_BUFFER_NUM];
+#elif defined(ALTERA_CYCLONE4)
+	// c4 sgdma dispatcher
+	PSGDMA_STANDARD_DESCRIPTOR m_SgdmaStandardDescriptor;
+	PSGDMA_EXTEND_DESCRIPTOR m_SgdmaExtendDescriptor;
+	PSGDMA_RESPONSE m_SgdmaResponse;
+	PSGDMA_CSR m_SgdmaCsr;
+	PFRAME_BUFFER_REGS m_FrameBufferReg;
+#else
+#error "Please define FPGA type"
+#endif
 
     LONG GetSkippedFrameCount()
     {

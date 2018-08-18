@@ -706,6 +706,7 @@ SetupInterrupts()
 		}
 		else {
 			m_Interrupt = (PKINTERRUPT)intrMsgConnectionContext;
+			TraceInfo(DBG_INIT, "INTX interrupt Allocated\n");
 		}
 	}
 	else {
@@ -774,7 +775,7 @@ SetupDma()
 	deviceDescription.Dma32BitAddresses = TRUE;
 	deviceDescription.Dma64BitAddresses = FALSE;
 	deviceDescription.InterfaceType = PCIBus;
-	deviceDescription.MaximumLength = ADMA_MAX_TRANSFER_SIZE;// 128 << PAGE_SHIFT;
+	deviceDescription.MaximumLength = HW_MAX_TRANSFER_SIZE;// 128 << PAGE_SHIFT;
 
 	m_DmaAdapterObject = IoGetDmaAdapter(m_Device->PhysicalDeviceObject,
 		&deviceDescription,
@@ -845,7 +846,7 @@ SetupDma()
 			m_DmaAdapterObject,
 			&deviceDescription,
 			m_NumberOfMapRegisters,
-			ADMA_MAX_TRANSFER_SIZE,
+			HW_MAX_TRANSFER_SIZE,
 			sizeof(KSMAPPING)
 		);
 		DeviceFunctions->Release();
@@ -857,14 +858,15 @@ SetupDma()
 		KsDeviceRegisterAdapterObject(
 			m_Device,
 			m_DmaAdapterObject,
-			ADMA_MAX_TRANSFER_SIZE,
+			HW_MAX_TRANSFER_SIZE,
 			sizeof(KSMAPPING)
 		);
 	}
 
+#if defined(ALTERA_ARRIA10)
 	// allocate host-side rd buffer for descriptors
 	m_RdDescBufferSize = sizeof(ADMA_RESULT) + 
-		ADMA_MAX_DESCRIPTOR_NUM * sizeof(ADMA_DESCRIPTOR);//add by zc
+		HW_MAX_DESCRIPTOR_NUM * sizeof(ADMA_DESCRIPTOR);//add by zc
 	m_RdDescBufferVa = AllocateCommonBuffer(m_DmaAdapterObject, 
 		m_RdDescBufferSize, &m_RdDescBufferPa, FALSE);
 	if (!m_RdDescBufferVa) {
@@ -875,7 +877,7 @@ SetupDma()
 	RtlZeroMemory(m_RdDescBufferVa, m_RdDescBufferSize);
 	// allocate host-side wr buffer for descriptors
 	m_WrDescBufferSize = sizeof(ADMA_RESULT) + 
-		ADMA_MAX_DESCRIPTOR_NUM * sizeof(ADMA_DESCRIPTOR);//add by zc
+		HW_MAX_DESCRIPTOR_NUM * sizeof(ADMA_DESCRIPTOR);//add by zc
 	m_WrDescBufferVa = AllocateCommonBuffer(m_DmaAdapterObject, 
 		m_WrDescBufferSize, &m_WrDescBufferPa, FALSE);
 	if (!m_WrDescBufferVa) {
@@ -884,6 +886,7 @@ SetupDma()
 		return status;
 	}
 	RtlZeroMemory(m_WrDescBufferVa, m_WrDescBufferSize);
+#endif
 
 End:
 	//
@@ -986,7 +989,7 @@ Return Value:
                 delete m_HardwareSimulation;
             }
 
-
+#if defined(ALTERA_ARRIA10)
 			m_HardwareSimulation->m_AdmaRdSgdmaReg = (PADMA_SGDMA_REGS)m_DmaBar;
 			m_HardwareSimulation->m_AdmaWrSgdmaReg = (PADMA_SGDMA_REGS)((PUCHAR)m_DmaBar + ADMA_DIR_REG_OFFSET);
 			m_HardwareSimulation->m_AdmaRdResult = (PADMA_RESULT)m_RdDescBufferVa;
@@ -1018,7 +1021,13 @@ Return Value:
 				m_HardwareSimulation->m_AdmaWrSgdmaReg->rcStatusDescLo, 
 				m_HardwareSimulation->m_AdmaWrSgdmaReg->rcStatusDescHi,
 				m_WrDescBufferSize);
-
+#elif defined(ALTERA_CYCLONE4)
+			m_HardwareSimulation->m_SgdmaExtendDescriptor = (PSGDMA_EXTEND_DESCRIPTOR)((PUCHAR)m_DmaBar + SGDMA_DESCRIPTOR_REG_OFFSET);
+			m_HardwareSimulation->m_SgdmaCsr = (PSGDMA_CSR)((PUCHAR)m_DmaBar + SGDMA_CSR_REG_OFFSET);
+			m_HardwareSimulation->m_FrameBufferReg = (PFRAME_BUFFER_REGS)((PUCHAR)m_DmaBar + FRAME_BUFFER_REG_ADDR);
+#else
+#error "Please define FPGA type"
+#endif
         }
 		
     }

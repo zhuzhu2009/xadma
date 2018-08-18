@@ -66,7 +66,7 @@ CHardwareSimulation (
     IN IHardwareSink *HardwareSink
     ) :
     m_HardwareSink (HardwareSink),
-    m_ScatterGatherMappingsMax (ADMA_MAX_DESCRIPTOR_NUM/*SCATTER_GATHER_MAPPINGS_MAX*/)
+    m_ScatterGatherMappingsMax (HW_MAX_DESCRIPTOR_NUM/*SCATTER_GATHER_MAPPINGS_MAX*/)
 
 /*++
 
@@ -670,14 +670,14 @@ Return Value:
 #endif
 		TraceVerbose(DBG_DMA, "device num mapping=%d, remaining=%d", SGEntry->ByteCount, 
 			SGEntry->CloneEntry->OffsetOut.Remaining);
-
+#if defined(ALTERA_ARRIA10)
 		ULONG id = m_AdmaWrSgdmaReg->dmaLastPtr;// id = 0~127 or 0xFF
 		ULONG deviceOffset = m_FrameBufferReg[0]->frameStartAddr;
 		PKSMAPPING ksMapping = SGEntry->CloneEntry->OffsetOut.Mappings;
 		for (ULONG i = 0; i < SGEntry->ByteCount; i++) {
 			//SgList->NumberOfElements < ADMA_MAX_DESCRIPTOR_NUM, WDF help do this
 
-			id = (id + 1) % ADMA_MAX_DESCRIPTOR_NUM;
+			id = (id + 1) % HW_MAX_DESCRIPTOR_NUM;
 			m_AdmaWrDescriptor[id].control = (id << 18) | ksMapping[i].ByteCount;
 			m_AdmaWrDescriptor[id].srcAddrLo = deviceOffset;
 			m_AdmaWrDescriptor[id].srcAddrHi = 0;
@@ -689,7 +689,11 @@ Return Value:
 		MemoryBarrier();
 		m_AdmaWrSgdmaReg->dmaLastPtr = id;
 		MemoryBarrier();
+#elif defined(ALTERA_CYCLONE4)
 
+#else
+#error "Please define FPGA type"
+#endif
 		// wait for interrupt
 
         m_NumMappingsCompleted++;
