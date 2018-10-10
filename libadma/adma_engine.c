@@ -322,25 +322,34 @@ static BOOLEAN EngineExists(PADMA_DEVICE adma, DirToDev dir, ULONG channel) {
 
 static NTSTATUS EngineCreate(PADMA_DEVICE adma, ADMA_ENGINE* engine, DirToDev dir, ULONG channel,
                              ULONG engineIndex) {
-
+	UNREFERENCED_PARAMETER(engineIndex);
     NTSTATUS status;
 
     engine->parentDevice = adma;
     engine->channel = channel;
     engine->dir = dir;
-    const ULONG offset = (dir * BLOCK_OFFSET) + (channel * ENGINE_OFFSET);//for adma engine num is 1, ENGINE_OFFSET has no effect
     PUCHAR configBarAddr = (PUCHAR)adma->bar[adma->configBarIdx];
     //engine->regs = (ADMA_ENGINE_REGS*)(configBarAddr + offset);//currently not use for adma
+#if defined(ALTERA_ARRIA10)
+	const ULONG offset = (dir * BLOCK_OFFSET) + (channel * ENGINE_OFFSET);//for adma engine num is 1, ENGINE_OFFSET has no effect
     engine->sgdma = (ADMA_SGDMA_REGS*)(configBarAddr + offset + SGDMA_BLOCK_OFFSET);
-
+#else
+	//only one dir c2h,
+	const ULONG offset = 0;// ((1 - dir) * BLOCK_OFFSET) + (channel * ENGINE_OFFSET);//for adma engine num is 1, ENGINE_OFFSET has no effect
+	engine->modSgdmaCsr = (ADMA_MODULAR_SGDMA_CSR*)(configBarAddr + offset + MODULAR_SGDMA_CSR_REG_OFFSET);
+	engine->modSgdmaStdDes = (ADMA_MODULAR_SGDMA_STANDARD_DESCRIPTOR*)(configBarAddr + offset + MODULAR_SGDMA_DESCRIPTOR_REG_OFFSET);
+	engine->modSgdmaResponse = (ADMA_MODULAR_SGDMA_RESPONSE*)(configBarAddr + offset + MODULAR_SGDMA_RESPONSE_REG_OFFSET);
+#endif
     // AXI-MM or AXI-ST? 0 = MM, 1 = ST
     //engine->type = (engine->regs->identifier & ADMA_ID_ST_BIT) != 0;
 
     // Incremental or Non-Incremental address mode? 0 = inc, 1=non-inc
     //engine->addressMode = (engine->regs->control & ADMA_CTRL_NON_INCR_ADDR) != 0;
-
+#if 0
     // set interrupt sources
     EngineConfigureInterrupt(engine, engineIndex);
+#endif
+
 #if 0//adma has poll feature but not use this mode
     // create common buffer for poll mode descriptor write back - if used
     status = EngineCreatePollWriteBackBuffer(engine);
@@ -351,7 +360,7 @@ static NTSTATUS EngineCreate(PADMA_DEVICE adma, ADMA_ENGINE* engine, DirToDev di
 #endif
     // capture alignment requirements
     //EngineGetAlignments(engine);//comment by zc, adma hasn't this feature
-
+#if defined(ALTERA_ARRIA10)
     // create and bind dma desciptor buffer to hw
     status = EngineCreateDescriptorBuffer(engine);
     if (!NT_SUCCESS(status)) {
@@ -359,7 +368,7 @@ static NTSTATUS EngineCreate(PADMA_DEVICE adma, ADMA_ENGINE* engine, DirToDev di
                    status);
         return status;
     }
-
+#endif
     // allocate wdf dma transaction object
     status = WdfDmaTransactionCreate(adma->dmaEnabler, WDF_NO_OBJECT_ATTRIBUTES,
                                      &engine->dmaTransaction);
@@ -454,7 +463,9 @@ BOOLEAN ADMA_EngineProgramDma(IN WDFDMATRANSACTION Transaction, IN WDFDEVICE Dev
 
     // get virtual and physical pointers to descriptor buffer
     ADMA_ENGINE * engine = (ADMA_ENGINE*)context;
+#if defined(ALTERA_ARRIA10)
     ADMA_DESCRIPTOR *descriptor = (ADMA_DESCRIPTOR*)((PUCHAR)WdfCommonBufferGetAlignedVirtualAddress(engine->descBuffer) + ADMA_DESCRIPTOR_OFFSET);
+#endif
     //PHYSICAL_ADDRESS descBufferLA = WdfCommonBufferGetAlignedLogicalAddress(engine->descBuffer);
 
     // offset into the transaction (if it is split)
@@ -463,26 +474,17 @@ BOOLEAN ADMA_EngineProgramDma(IN WDFDMATRANSACTION Transaction, IN WDFDEVICE Dev
     TraceVerbose(DBG_DMA, "device addr=%lld, num descriptors=%d",
                  deviceOffset, SgList->NumberOfElements);
 
+	engine->parentDevice->a2pTransTbl->a2pAddrLo0 = (SgList->Elements[0].Address.LowPart & engine->parentDevice->a2pMask) | 0x1;
+	engine->parentDevice->a2pTransTbl->a2pAddrHi0 = SgList->Elements[0].Address.HighPart;
+
+#if defined(ALTERA_ARRIA10)
 	ULONG id = engine->sgdma->dmaLastPtr;// id = 0~127 or 0xFF
+#else
+	engine->modSgdmaCsr->status = 0;
+#endif
+
 	//SgList->NumberOfElements < ADMA_MAX_DESCRIPTOR_NUM, WDF help do this
     for (ULONG i = 0; i < SgList->NumberOfElements; i++) {
-		id = (id + 1) % ADMA_MAX_DESCRIPTOR_NUM;
-        descriptor[id].control = LIMIT_TO_32((id << 18) | SgList->Elements[i].Length);
-        ULONG hostAddrLo = SgList->Elements[i].Address.LowPart;
-        LONG hostAddrHi = SgList->Elements[i].Address.HighPart;
-        if (Direction == WdfDmaDirectionWriteToDevice) {
-            // source is host memory
-            descriptor[id].srcAddrLo = hostAddrLo;
-            descriptor[id].srcAddrHi = hostAddrHi;
-            descriptor[id].dstAddrLo = LIMIT_TO_32(deviceOffset);
-            descriptor[id].dstAddrHi = LIMIT_TO_32(deviceOffset >> 32);
-        } else {
-            // destination is host memory
-            descriptor[id].srcAddrLo = LIMIT_TO_32(deviceOffset);
-            descriptor[id].srcAddrHi = LIMIT_TO_32(deviceOffset >> 32);
-            descriptor[id].dstAddrLo = hostAddrLo;
-            descriptor[id].dstAddrHi = hostAddrHi;
-        }
 #if 0
         // next descriptor bus address 
         descBufferLA.QuadPart += sizeof(DMA_DESCRIPTOR);
@@ -509,13 +511,59 @@ BOOLEAN ADMA_EngineProgramDma(IN WDFDMATRANSACTION Transaction, IN WDFDEVICE Dev
             TraceWarning(DBG_DMA, "Error: Dma Transfer is not aligned");
         }
 #endif
-    }
+
+#if defined(ALTERA_ARRIA10)
+		id = (id + 1) % ADMA_MAX_DESCRIPTOR_NUM;
+		descriptor[id].control = LIMIT_TO_32((id << 18) | SgList->Elements[i].Length);
+		ULONG hostAddrLo = SgList->Elements[i].Address.LowPart;
+		LONG hostAddrHi = SgList->Elements[i].Address.HighPart;
+		if (Direction == WdfDmaDirectionWriteToDevice) {
+			// source is host memory
+			descriptor[id].srcAddrLo = hostAddrLo;
+			descriptor[id].srcAddrHi = hostAddrHi;
+			descriptor[id].dstAddrLo = LIMIT_TO_32(deviceOffset);
+			descriptor[id].dstAddrHi = LIMIT_TO_32(deviceOffset >> 32);
+		}
+		else {
+			// destination is host memory
+			descriptor[id].srcAddrLo = LIMIT_TO_32(deviceOffset);
+			descriptor[id].srcAddrHi = LIMIT_TO_32(deviceOffset >> 32);
+			descriptor[id].dstAddrLo = hostAddrLo;
+			descriptor[id].dstAddrHi = hostAddrHi;
+		}
+#else
+		ULONG hostAddrLo = SgList->Elements[i].Address.LowPart;
+		LONG hostAddrHi = SgList->Elements[i].Address.HighPart;
+		if (Direction == WdfDmaDirectionWriteToDevice) {
+			// source is host memory
+			engine->modSgdmaStdDes->readAddress = hostAddrLo;
+			engine->modSgdmaStdDes->writeAddress = LIMIT_TO_32(deviceOffset);
+		}
+		else {
+			// destination is host memory
+			engine->modSgdmaStdDes->readAddress = LIMIT_TO_32(deviceOffset);
+			engine->modSgdmaStdDes->writeAddress = hostAddrLo & (~engine->parentDevice->a2pMask);
+		}
+		engine->modSgdmaStdDes->transferLength = SgList->Elements[i].Length;
+		engine->modSgdmaStdDes->control = DESCRIPTOR_CONTROL_TRANSFER_COMPLETE_IRQ_MASK | 
+										  DESCRIPTOR_CONTROL_GO_MASK;
+		TraceInfo(DBG_INIT, "des[%d] ha=0x%08x%08x da=0x%08x len=0x%x", i, 
+			hostAddrHi, hostAddrLo, LIMIT_TO_32(deviceOffset), SgList->Elements[i].Length);
+
+		deviceOffset += SgList->Elements[i].Length;
+#endif
+	}
+
 #if 0
     OptimizeDescriptors(engine, descriptor, SgList->NumberOfElements);
 #endif
+
+#if defined(ALTERA_ARRIA10)
     for (ULONG i = 0; i < SgList->NumberOfElements; i++) {
         DumpDescriptor(&(descriptor[i]));
     }
+#endif
+
 #if 0
     if (engine->poll) {
         engine->numDescriptors = SgList->NumberOfElements;
@@ -524,8 +572,11 @@ BOOLEAN ADMA_EngineProgramDma(IN WDFDMATRANSACTION Transaction, IN WDFDEVICE Dev
     MemoryBarrier();
 
     // start the engine
-    //EngineStart(engine);
+    EngineStart(engine);
+
+#if defined(ALTERA_ARRIA10)
 	engine->sgdma->dmaLastPtr = id;
+#endif
 
     MemoryBarrier();
 
@@ -533,44 +584,74 @@ BOOLEAN ADMA_EngineProgramDma(IN WDFDMATRANSACTION Transaction, IN WDFDEVICE Dev
 }
 
 NTSTATUS ProbeEngines(IN PADMA_DEVICE adma) {
-    PAGED_CODE();
+	PAGED_CODE();
 
-    ULONG engineIndex = 0;
+	ULONG engineIndex = 0;
 
-    // iterate over H2C (FPGA performs PCIe reads towards FPGA),
-    // then C2H (FPGA performs PCIe writes from FPGA)
-    for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
-        for (ULONG ch = 0; ch < ADMA_MAX_NUM_CHANNELS; ch++) {
+	// iterate over H2C (FPGA performs PCIe reads towards FPGA),
+	// then C2H (FPGA performs PCIe writes from FPGA)
+	for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
+		for (ULONG ch = 0; ch < ADMA_MAX_NUM_CHANNELS; ch++) {
 
-            //if (EngineExists(adma, dir, ch)) {
-                ADMA_ENGINE* engine = &(adma->engines[ch][dir]);
-                NTSTATUS status = EngineCreate(adma, engine, dir, ch, engineIndex);
-                if (!NT_SUCCESS(status)) {
-                    TraceError(DBG_INIT, "EngineCreate failed! %!STATUS!", status);
-                    return status;
-                }
-                engineIndex++;
-                TraceInfo(DBG_INIT, "%s_%u engine created (AXI-%s)",
-                          DirectionToString(dir), ch, engine->type == EngineType_ST ? "ST" : "MM");
-            //} else {     // skip inactive engines
-            //    TraceInfo(DBG_INIT, "Skipping non-existing engine %s_%u",
-            //              DirectionToString(dir), ch);
-            //}
-        }
-    }
-    return STATUS_SUCCESS;
+			//if (EngineExists(adma, dir, ch)) {
+			ADMA_ENGINE* engine = &(adma->engines[ch][dir]);
+			NTSTATUS status = EngineCreate(adma, engine, dir, ch, engineIndex);
+			if (!NT_SUCCESS(status)) {
+				TraceError(DBG_INIT, "EngineCreate failed! %!STATUS!", status);
+				return status;
+			}
+			engineIndex++;
+		}
+	}
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS EnginesAssignInterrupt(IN PADMA_DEVICE adma) {
+	PAGED_CODE();
+
+	ULONG engineIndex = 0;
+
+	// iterate over H2C (FPGA performs PCIe reads towards FPGA),
+	// then C2H (FPGA performs PCIe writes from FPGA)
+	for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
+		for (ULONG ch = 0; ch < ADMA_MAX_NUM_CHANNELS; ch++) {
+			//if (EngineExists(adma, dir, ch)) {
+			ADMA_ENGINE* engine = &(adma->engines[ch][dir]);
+			EngineConfigureInterrupt(engine, engineIndex);
+			engineIndex++;
+			TraceInfo(DBG_INIT, "%s_%u engine assign interrupt",
+				DirectionToString(dir), ch);
+			//} else {     // skip inactive engines
+			//    TraceInfo(DBG_INIT, "Skipping non-existing engine %s_%u",
+			//              DirectionToString(dir), ch);
+			//}
+		}
+	}
+	return STATUS_SUCCESS;
 }
 
 void EngineStart(IN ADMA_ENGINE *engine) {
+#if 0
     engine->regs->controlW1S = ADMA_CTRL_RUN_BIT;
     TraceInfo(DBG_DMA, "%s_%u engine started (control=0x%08x)",
               DirectionToString(engine->dir), engine->channel, engine->regs->control);
+#endif
+	TraceInfo(DBG_DMA, "%s_%u engine started (control=0x%08x status=0x%08x)",
+		DirectionToString(engine->dir), engine->channel, engine->modSgdmaCsr->control,
+		engine->modSgdmaCsr->status);
 }
 
 void EngineStop(IN ADMA_ENGINE *engine) {
+	UNREFERENCED_PARAMETER(engine);
+#if 0
     engine->regs->controlW1C = ADMA_CTRL_RUN_BIT;
     TraceInfo(DBG_DMA, "%s_%u engine stopped (control=0x%08x)",
               DirectionToString(engine->dir), engine->channel, engine->regs->control);
+
+	TraceInfo(DBG_DMA, "%s_%u engine stopped (control=0x%08x status=0x%08x)",
+		DirectionToString(engine->dir), engine->channel, engine->modSgdmaCsr->control,
+		engine->modSgdmaCsr->status);
+#endif
 }
 
 void EngineEnableInterrupt(IN ADMA_ENGINE* engine) {
@@ -579,7 +660,12 @@ void EngineEnableInterrupt(IN ADMA_ENGINE* engine) {
         return;
 
     }
+#if 0
     engine->parentDevice->interruptRegs->channelIntEnableW1S = engine->irqBitMask;
+#endif
+	UINT32 reg = engine->modSgdmaCsr->control;
+	engine->modSgdmaCsr->control = reg | CSR_GLOBAL_INTERRUPT_MASK;
+
     TraceInfo(DBG_IRQ, "%s_%u enabled interrupt", DirectionToString(engine->dir), engine->channel);
 }
 
@@ -588,7 +674,13 @@ void EngineDisableInterrupt(IN ADMA_ENGINE* engine) {
         TraceError(DBG_IRQ, "engine ptr is NULL");
         return;
     }
+#if 0
     engine->parentDevice->interruptRegs->channelIntEnableW1C = engine->irqBitMask;
+#endif
+
+	UINT32 reg = engine->modSgdmaCsr->control;
+	engine->modSgdmaCsr->control = reg & (~CSR_GLOBAL_INTERRUPT_MASK);
+
     TraceInfo(DBG_IRQ, "%s_%u disabled interrupt", DirectionToString(engine->dir), engine->channel);
 }
 
@@ -993,11 +1085,14 @@ NTSTATUS EnginePollRing(IN ADMA_ENGINE* engine) {
 //========================= performance counters interface ========================================
 
 void EngineStartPerf(IN ADMA_ENGINE* engine) {
+	UNREFERENCED_PARAMETER(engine);
+#if 0
     ASSERTMSG("argument engine is NULL!", engine != NULL);
 
     // Automatically stops performance counters when a descriptor with the stop bit is completed.
     engine->regs->perfCtrl = ADMA_PERF_CLEAR;
     engine->regs->perfCtrl = ADMA_PERF_AUTO | ADMA_PERF_RUN;
+#endif
 }
 
 void EngineGetPerf(IN ADMA_ENGINE* engine, OUT ADMA_PERF_DATA* perfData) {

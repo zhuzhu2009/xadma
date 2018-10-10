@@ -26,6 +26,12 @@
 
 **************************************************************************/
 #include <initguid.h>
+
+#define DMAX_X 1920
+#define DMAX_Y 1080
+#define D_X 1920
+#define D_Y 1080
+
 //
 // STREAM_POINTER_CONTEXT:
 //
@@ -48,7 +54,8 @@ typedef struct _STREAM_POINTER_CONTEXT {
 class CCapturePin :
     public ICaptureSink {
 
-private:
+//private:
+public:
 
     //
     // The AVStream pin we're associated with.
@@ -147,6 +154,10 @@ private:
     NTSTATUS
     Process (
         );
+
+	NTSTATUS
+	ProcessC4(
+		);
     //
     // CaptureVideoInfoHeader():
     //
@@ -283,10 +294,17 @@ public:
         IN PKSPIN Pin
         )
     {
+#if defined(ALTERA_ARRIA10)
         return 
             (reinterpret_cast <CCapturePin *> (Pin -> Context)) ->
                Process ();
-            
+#elif defined(ALTERA_CYCLONE4)
+		return
+			(reinterpret_cast <CCapturePin *> (Pin->Context)) ->
+			ProcessC4();
+#else
+#error "Please define FPGA type"
+#endif
     }
 
     //

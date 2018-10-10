@@ -191,9 +191,13 @@ static BOOLEAN IsConfigBAR(IN PADMA_DEVICE adma, IN UINT idx) {
 
     ADMA_IRQ_REGS* irqRegs = (ADMA_IRQ_REGS*)((PUCHAR)adma->bar[idx] + IRQ_BLOCK_OFFSET);
     ADMA_CONFIG_REGS* cfgRegs = (ADMA_CONFIG_REGS*)((PUCHAR)adma->bar[idx] + CONFIG_BLOCK_OFFSET);
-
-    UINT32 interruptID = irqRegs->identifier & ADMA_ID_MASK;
-    UINT32 configID = cfgRegs->identifier & ADMA_ID_MASK;
+	UINT32 interruptID = 0;
+	UINT32 configID = 0;
+	UNREFERENCED_PARAMETER(irqRegs);
+#if 0
+    interruptID = irqRegs->identifier & ADMA_ID_MASK;
+#endif
+    configID = cfgRegs->identifier & ADMA_ID_MASK;
 
     return ((interruptID == ADMA_ID) && (configID == ADMA_ID)) ? TRUE : FALSE;
 }
@@ -227,10 +231,15 @@ static NTSTATUS IdentifyBars(IN PADMA_DEVICE adma) {
     TraceInfo(DBG_INIT, "%!FUNC!, BAR index: user=%d, control=%d, bypass=%d",
               adma->userBarIdx, adma->configBarIdx, adma->bypassBarIdx);
 #endif
+
+#if defined(ALTERA_ARRIA10)
 	adma->userBarIdx = 1; //add by zhuce
 	adma->configBarIdx = 0; //add by zhuce
 	adma->bypassBarIdx = -1; //add by zhuce
-
+#else
+	adma->userBarIdx = 0; //add by zhuce
+	adma->configBarIdx = 1; //add by zhuce
+#endif
     return STATUS_SUCCESS;
 }
 
@@ -238,6 +247,9 @@ static NTSTATUS IdentifyBars(IN PADMA_DEVICE adma) {
 static void GetRegisterModules(IN PADMA_DEVICE adma) {
     PUCHAR configBarAddr = (PUCHAR)adma->bar[adma->configBarIdx];
     adma->configRegs = (ADMA_CONFIG_REGS*)(configBarAddr + CONFIG_BLOCK_OFFSET);
+	adma->a2pTransTbl = (ADMA_A2P_TRANS_TBL*)(configBarAddr + A2P_TRANS_TBL_OFFSET);
+	adma->interruptRegs = (ADMA_IRQ_REGS*)(configBarAddr + ADMA_IRQ_REGS_OFFSET);
+	
 #if 0 // add by zhuce
     adma->interruptRegs = (ADMA_IRQ_REGS*)(configBarAddr + IRQ_BLOCK_OFFSET);
     adma->sgdmaRegs = (ADMA_SGDMA_COMMON_REGS*)(configBarAddr + SGDMA_COMMON_BLOCK_OFFSET);
@@ -285,11 +297,15 @@ NTSTATUS ADMA_DeviceOpen(WDFDEVICE wdfDevice,
                      v2017_1, version);
     }
 */
-    status = SetupInterrupts(adma, ResourcesRaw, ResourcesTranslated);
-    if (!NT_SUCCESS(status)) {
-        TraceError(DBG_INIT, "SetupInterrupts failed: %!STATUS!", status);
-        return status;
-    }
+
+	adma->a2pTransTbl->a2pAddrLo0 = 0xFFFFFFFCUL;
+	adma->a2pMask = adma->a2pTransTbl->a2pAddrLo0;
+	if (!adma->a2pMask) {
+		status = STATUS_INTERNAL_ERROR;
+		TraceError(DBG_INIT, " FPGA bit error %!STATUS!", status);
+		return status;
+	}
+	TraceInfo(DBG_INIT, "a2p_mask = 0x%08x", adma->a2pMask);
 
     // WDF DMA Enabler - at least 32 bytes alignment for decriport table Page81, Page53 4 bytes alignment
 	WdfDeviceSetAlignmentRequirement(adma->wdfDevice, FILE_32_BYTE_ALIGNMENT); //add by zhuce 
@@ -301,12 +317,25 @@ NTSTATUS ADMA_DeviceOpen(WDFDEVICE wdfDevice,
         return status;
     }
 
+
     // Detect and initialize engines configured in HW IP 
     status = ProbeEngines(adma);
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "ProbeEngines failed: %!STATUS!", status);
         return status;
     }
+
+	status = SetupInterrupts(adma, ResourcesRaw, ResourcesTranslated);
+	if (!NT_SUCCESS(status)) {
+		TraceError(DBG_INIT, "SetupInterrupts failed: %!STATUS!", status);
+		return status;
+	}
+
+	status = EnginesAssignInterrupt(adma);
+	if (!NT_SUCCESS(status)) {
+		TraceError(DBG_INIT, "EnginesAssignInterrupt failed: %!STATUS!", status);
+		return status;
+	}
 
     return status;
 }
@@ -316,6 +345,7 @@ void ADMA_DeviceClose(PADMA_DEVICE adma) {
     // todo - stop every engine?
 
     // reset irq vectors?
+#if 0
     if (adma && adma->interruptRegs) {
         adma->interruptRegs->userVector[0] = 0;
         adma->interruptRegs->userVector[1] = 0;
@@ -324,7 +354,7 @@ void ADMA_DeviceClose(PADMA_DEVICE adma) {
         adma->interruptRegs->channelVector[0] = 0;
         adma->interruptRegs->channelVector[1] = 0;
     }
-
+#endif
     // Unmap any I/O ports. Disconnecting from the interrupt will be done automatically by the framework.
     for (UINT i = 0; i < adma->numBars; i++) {
         if (adma->bar[i] != NULL) {

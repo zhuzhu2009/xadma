@@ -90,6 +90,11 @@ typedef struct ADMA_ENGINE_T {
     volatile ADMA_ENGINE_REGS *regs; // control regs
     volatile ADMA_SGDMA_REGS *sgdma;
 
+	volatile ADMA_MODULAR_SGDMA_CSR *modSgdmaCsr;
+	volatile ADMA_MODULAR_SGDMA_STANDARD_DESCRIPTOR *modSgdmaStdDes;
+	volatile ADMA_MODULAR_SGDMA_EXTEND_DESCRIPTOR *modSgdmaExtDes;
+	volatile ADMA_MODULAR_SGDMA_RESPONSE *modSgdmaResponse;
+
     // engine configuration
     UINT32 irqBitMask;
     UINT32 alignAddr;
@@ -157,6 +162,9 @@ typedef struct ADMA_DEVICE_T* PADMA_DEVICE;
 
 /// Initialize an ADMA_ENGINE for each engine configured in HW
 NTSTATUS ProbeEngines(IN PADMA_DEVICE adma);
+
+// Assign interrupt add by zhuce
+NTSTATUS EnginesAssignInterrupt(IN PADMA_DEVICE adma);
 
 /// Start the DMA engine
 /// The transfer descriptors should be initialized and bound to HW before calling this function

@@ -392,12 +392,7 @@ MapResources(
 		}
 	}
 
-	if (m_NumberOfBARs < 2 || m_NumberOfIntrs < 1) {
-		return STATUS_DEVICE_CONFIGURATION_ERROR;
-	}
-
-	if (m_NumberOfIntrs > 1) {
-		TraceInfo(DBG_INIT, "Unsupported Multi MSI/MSI-X resources\n");
+	if (m_NumberOfBARs < 1 || m_NumberOfIntrs < 1) {
 		return STATUS_DEVICE_CONFIGURATION_ERROR;
 	}
 
@@ -545,13 +540,25 @@ TRUE if our device is interrupting, FALSE otherwise.
 	CCaptureDevice *CapDevice = NULL;
 	CapDevice = reinterpret_cast <CCaptureDevice *> (ServiceContext);
 	//USHORT      IntStatus;
+	UINT32			reg;
 
 	TraceInfo(DBG_IRQ, "--> AdmaInterruptHandler\n");
 
+	reg = CapDevice->m_SgdmaCsr->status;
+	if (reg & CSR_IRQ_SET_MASK) {
+		TraceInfo(DBG_IRQ, "sgdma intr reg=0x%x actual bytes=0x%x\n", reg, CapDevice->m_SgdmaResponse->actualBytesTransferred);
 
-	TraceInfo(DBG_IRQ, "Requesting DPC\n");
+		CapDevice->m_SgdmaCsr->status = reg & (~CSR_IRQ_SET_MASK);
+		CCapturePin *CapPin = reinterpret_cast <CCapturePin *> (CapDevice->m_CaptureSink);
+		KsPinAttemptProcessing(CapPin->m_Pin, TRUE);
+	}
+	reg = CapDevice->m_FrameBufferReg->interrupt;
+	if (reg) {
+		TraceInfo(DBG_IRQ, "frame buffer intr\n");
+		CapDevice->m_FrameBufferReg->interrupt = 0;
+	}
 
-	IoRequestDpc(CapDevice->m_Device->FunctionalDeviceObject, NULL, reinterpret_cast <PVOID> (CapDevice));
+	//IoRequestDpc(CapDevice->m_Device->FunctionalDeviceObject, NULL, reinterpret_cast <PVOID> (CapDevice));
 
 	TraceInfo(DBG_IRQ, "<-- AdmaInterruptHandler\n");
 
@@ -587,18 +594,33 @@ TRUE if our device is interrupting, FALSE otherwise.
 	CCaptureDevice *CapDevice = NULL;
 	CapDevice = reinterpret_cast <CCaptureDevice *> (ServiceContext);
 	//USHORT      IntStatus;
+	UINT32			reg;
 
 	TraceInfo(DBG_IRQ, "--> AdmaInterruptHandler\n");
 
 
 	TraceInfo(DBG_IRQ, "Requesting DPC MessageId %d\n", MessageId);
 
-	if (MessageId == 0) {
-		IoRequestDpc(CapDevice->m_Device->FunctionalDeviceObject, NULL, reinterpret_cast <PVOID> (CapDevice));
-	} else {
-		KeInsertQueueDpc(&CapDevice->m_VideoDpc, (PVOID)MessageId, NULL);
-	}
+	reg = CapDevice->m_SgdmaCsr->status;
+	if (reg & CSR_IRQ_SET_MASK) {
+		TraceInfo(DBG_IRQ, "sgdma intr reg=0x%x actual bytes=0x%x\n", reg, CapDevice->m_SgdmaResponse->actualBytesTransferred);
 
+		CapDevice->m_SgdmaCsr->status = reg & (~CSR_IRQ_SET_MASK);
+		CCapturePin *CapPin = reinterpret_cast <CCapturePin *> (CapDevice->m_CaptureSink);
+		KsPinAttemptProcessing(CapPin->m_Pin, TRUE);
+	}
+	reg = CapDevice->m_FrameBufferReg->interrupt;
+	if (reg) {
+		TraceInfo(DBG_IRQ, "frame buffer intr\n");
+		CapDevice->m_FrameBufferReg->interrupt = 0;
+	}
+#if 0
+	if (MessageId == 0) {
+		//IoRequestDpc(CapDevice->m_Device->FunctionalDeviceObject, NULL, reinterpret_cast <PVOID> (CapDevice));
+	} else {
+		//KeInsertQueueDpc(&CapDevice->m_VideoDpc, (PVOID)MessageId, NULL);
+	}
+#endif
 	TraceInfo(DBG_IRQ, "<-- AdmaInterruptHandler\n");
 
 	return TRUE;// InterruptRecognized;
@@ -871,7 +893,7 @@ SetupDma()
 		m_RdDescBufferSize, &m_RdDescBufferPa, FALSE);
 	if (!m_RdDescBufferVa) {
 		status = STATUS_INSUFFICIENT_RESOURCES;
-		TraceError(DBG_INIT, "AllocateCommonBuffer failed: %!STATUS!", status);
+		TraceError(DBG_INIT, "AllocateCommonBuffer rd desc failed: %!STATUS!", status);
 		return status;
 	}
 	RtlZeroMemory(m_RdDescBufferVa, m_RdDescBufferSize);
@@ -882,12 +904,24 @@ SetupDma()
 		m_WrDescBufferSize, &m_WrDescBufferPa, FALSE);
 	if (!m_WrDescBufferVa) {
 		status = STATUS_INSUFFICIENT_RESOURCES;
-		TraceError(DBG_INIT, "AllocateCommonBuffer failed: %!STATUS!", status);
+		TraceError(DBG_INIT, "AllocateCommonBuffer wr desc failed: %!STATUS!", status);
 		return status;
 	}
 	RtlZeroMemory(m_WrDescBufferVa, m_WrDescBufferSize);
+#elif defined(ALTERA_CYCLONE4)
+	// allocate host-side video buffer for common buffer dma
+	m_VideoBufferSize = DMAX_X * DMAX_Y * 3;//add by zc
+	m_VideoBufferVa = AllocateCommonBuffer(m_DmaAdapterObject,
+		m_VideoBufferSize, &m_VideoBufferPa, FALSE);
+	if (!m_VideoBufferVa) {
+		status = STATUS_INSUFFICIENT_RESOURCES;
+		TraceError(DBG_INIT, "AllocateCommonBuffer video failed: %!STATUS!", status);
+		return status;
+	}
+	RtlZeroMemory(m_VideoBufferVa, m_VideoBufferSize);
+#else
+#error "Please define FPGA type"
 #endif
-
 End:
 	//
 	// If we have jumped here due to any kind of mapping or resource allocation
@@ -1022,9 +1056,11 @@ Return Value:
 				m_HardwareSimulation->m_AdmaWrSgdmaReg->rcStatusDescHi,
 				m_WrDescBufferSize);
 #elif defined(ALTERA_CYCLONE4)
-			m_HardwareSimulation->m_SgdmaExtendDescriptor = (PSGDMA_EXTEND_DESCRIPTOR)((PUCHAR)m_DmaBar + SGDMA_DESCRIPTOR_REG_OFFSET);
-			m_HardwareSimulation->m_SgdmaCsr = (PSGDMA_CSR)((PUCHAR)m_DmaBar + SGDMA_CSR_REG_OFFSET);
-			m_HardwareSimulation->m_FrameBufferReg = (PFRAME_BUFFER_REGS)((PUCHAR)m_DmaBar + FRAME_BUFFER_REG_ADDR);
+			m_SgdmaExtendDescriptor = (PSGDMA_EXTEND_DESCRIPTOR)((PUCHAR)m_DmaBar + SGDMA_DESCRIPTOR_REG_OFFSET);
+			m_SgdmaCsr = (PSGDMA_CSR)((PUCHAR)m_DmaBar + SGDMA_CSR_REG_OFFSET);
+			m_SgdmaResponse = (PSGDMA_RESPONSE)((PUCHAR)m_DmaBar + SGDMA_RESPONSE_REG_OFFSET);
+			m_FrameBufferReg = (PFRAME_BUFFER_REGS)((PUCHAR)m_DmaBar + FRAME_BUFFER_REG_ADDR);
+			m_ClockVideoReg = (PCLOCK_VIDEO_REGS)((PUCHAR)m_DmaBar + CLOCK_VIDEO_REG_ADDR);
 #else
 #error "Please define FPGA type"
 #endif
@@ -1066,7 +1102,7 @@ Return Value:
     PAGED_CODE();
 
     if (m_DmaAdapterObject) {
-
+#if defined(ALTERA_ARRIA10)
  		if (m_RdDescBufferVa) {
 			FreeCommonBuffer(m_DmaAdapterObject, m_RdDescBufferSize, 
 				m_RdDescBufferPa, m_RdDescBufferVa, FALSE);
@@ -1078,7 +1114,15 @@ Return Value:
 				m_WrDescBufferPa, m_WrDescBufferVa, FALSE);
 			m_WrDescBufferVa = NULL;
 		}
-
+#elif defined(ALTERA_CYCLONE4)
+		if (m_VideoBufferVa) {
+			FreeCommonBuffer(m_DmaAdapterObject, m_VideoBufferSize,
+				m_VideoBufferPa, m_VideoBufferVa, FALSE);
+			m_VideoBufferVa = NULL;
+		}
+#else
+#error "Please define FPGA type"
+#endif
        //
         // Return the DMA adapter back to the system.
         //
@@ -1300,6 +1344,7 @@ Return Value:
 
     PAGED_CODE();
 
+#if defined(ALTERA_ARRIA10)
     m_LastMappingsCompleted = 0;
     m_InterruptTime = 0;
 
@@ -1310,9 +1355,37 @@ Return Value:
             m_VideoInfoHeader -> bmiHeader.biWidth,
             ABS (m_VideoInfoHeader -> bmiHeader.biHeight),
             m_VideoInfoHeader -> bmiHeader.biSizeImage
-            );
+            );	
+#elif defined(ALTERA_CYCLONE4)
+	//prepare c4 dma
+	m_SgdmaExtendDescriptor->readAddress = 0;
+	m_SgdmaExtendDescriptor->writeAddress = m_VideoBufferPa.LowPart;
+	m_SgdmaExtendDescriptor->transferLength = m_VideoBufferSize;
+	m_SgdmaExtendDescriptor->snAndRwBurst = (128UL << 24) | (128UL << 16);
+	m_SgdmaExtendDescriptor->rwStride = (1 << DESCRIPTOR_WRITE_STRIDE_OFFSET) | (1 << DESCRIPTOR_READ_STRIDE_OFFSET);
+	m_SgdmaExtendDescriptor->control = DESCRIPTOR_CONTROL_PARK_WRITES_MASK | DESCRIPTOR_CONTROL_END_ON_EOP_LEN_MASK |
+		DESCRIPTOR_CONTROL_TRANSFER_COMPLETE_IRQ_MASK | DESCRIPTOR_CONTROL_TRANSFER_COMPLETE_IRQ_MASK |
+		DESCRIPTOR_CONTROL_ERROR_IRQ_MASK | DESCRIPTOR_CONTROL_GO_MASK;
 
+	UINT32 reg;
+	reg = m_SgdmaCsr->control;
+	m_SgdmaCsr->control = reg | CSR_GLOBAL_INTERRUPT_MASK;
 
+	reg = m_FrameBufferReg->control;
+	m_FrameBufferReg->control = reg | CONTROL_GO_MASK;
+
+	reg = m_ClockVideoReg->status;
+	m_ClockVideoReg->status = reg & (~CLOCK_VIDEO_STATUS_OVERFLOW_MASK);
+	
+	reg = m_ClockVideoReg->control;
+	m_ClockVideoReg->control = reg | CONTROL_GO_MASK;
+
+	TraceVerbose(DBG_INIT, "Start");
+
+	return STATUS_SUCCESS;
+#else
+#error "Please define FPGA type"
+#endif
 }
 
 /*************************************************/
@@ -1354,11 +1427,25 @@ Return Value:
 
     PAGED_CODE();
 
-    return
-        m_HardwareSimulation -> Pause (
-            Pausing
-            );
+#if defined(ALTERA_ARRIA10)
+	return
+		m_HardwareSimulation->Pause(
+			Pausing
+		);
+#elif defined(ALTERA_CYCLONE4)
 
+	if (Pausing) {
+		Stop();
+	} else {
+		Start();
+	}
+
+	TraceVerbose(DBG_INIT, "Pause %d", Pausing);
+
+	return STATUS_SUCCESS;
+#else
+#error "Please define FPGA type"
+#endif
 }
 
 /*************************************************/
@@ -1389,8 +1476,27 @@ Return Value:
 
     PAGED_CODE();
 
-    return
-        m_HardwareSimulation -> Stop ();
+#if defined(ALTERA_ARRIA10)
+	return
+		m_HardwareSimulation->Stop();
+#elif defined(ALTERA_CYCLONE4)
+	UINT32 reg;
+
+	reg = m_ClockVideoReg->control;
+	m_ClockVideoReg->control = reg & (~CONTROL_GO_MASK);
+
+	reg = m_FrameBufferReg->control;
+	m_FrameBufferReg->control = reg & (~CONTROL_GO_MASK);
+
+	reg = m_SgdmaCsr->control;
+	m_SgdmaCsr->control = reg | CSR_RESET_MASK;
+
+	TraceVerbose(DBG_INIT, "Stop");
+	return STATUS_SUCCESS;
+#else
+#error "Please define FPGA type"
+#endif
+
 
 }
 
@@ -1437,8 +1543,6 @@ Return Value:
 
     PAGED_CODE();
 
-    
-
     return 
         m_HardwareSimulation -> ProgramScatterGatherMappings (
             Clone,
@@ -1450,6 +1554,17 @@ Return Value:
 
 }
 
+ULONG
+CCaptureDevice::
+CopyVideoCommonBuffer(
+	IN PUCHAR *Buffer,
+	IN PULONG Length
+)
+{
+	*Length = m_VideoBufferSize;
+	RtlCopyMemory(Buffer, m_VideoBufferVa, *Length);
+	return STATUS_SUCCESS;
+}
 /*************************************************************************
 
     LOCKED CODE

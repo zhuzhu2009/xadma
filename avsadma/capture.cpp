@@ -44,11 +44,6 @@
 #pragma code_seg("PAGE")
 #endif // ALLOC_PRAGMA
 
-#define DMAX_X 1920
-#define DMAX_Y 1080
-#define D_X 1920
-#define D_Y 1080
-
 CCapturePin::
 CCapturePin (
     IN PKSPIN Pin
@@ -533,6 +528,84 @@ Return Value:
 
 }
 
+NTSTATUS
+CCapturePin::
+ProcessC4(
+)
+
+/*++
+
+Routine Description:
+
+The process dispatch for the pin bridges to this location.
+We handle setting up scatter gather mappings, etc...
+
+Arguments:
+
+None
+
+Return Value:
+
+Success / Failure
+
+--*/
+
+{
+
+	PAGED_CODE();
+
+	NTSTATUS Status = STATUS_SUCCESS;
+	PKSSTREAM_POINTER Leading;
+
+	//_DbgPrintF(DEBUGLVL_VERBOSE, ("Process"));
+	TraceVerbose(DBG_CAPTURE, "Process\n");
+
+	Leading = KsPinGetLeadingEdgeStreamPointer(
+		m_Pin,
+		KSSTREAM_POINTER_STATE_LOCKED
+	);
+
+	if (Leading) {
+		//
+		// If no data is present in the Leading edge stream pointer, just 
+		// move on to the next frame
+		//
+		if (NULL == Leading->StreamHeader->Data) {
+			Status = STATUS_PENDING;
+		}
+		else {
+			PUCHAR BufferVirtual = (PUCHAR)Leading->StreamHeader->Data;
+			m_Device->CopyVideoCommonBuffer(&BufferVirtual, &Leading->StreamHeader->DataUsed);
+			if (m_Clock) {
+
+				LONGLONG ClockTime = m_Clock->GetTime();
+
+				Leading->StreamHeader->PresentationTime.Time = ClockTime;
+
+				Leading->StreamHeader->OptionsFlags =
+					KSSTREAM_HEADER_OPTIONSF_TIMEVALID |
+					KSSTREAM_HEADER_OPTIONSF_DURATIONVALID;
+
+			}
+			else {
+				//
+				// If there is no clock, don't time stamp the packets.
+				//
+				Leading->StreamHeader->PresentationTime.Time = 0;
+			}
+			KsStreamPointerUnlock(Leading, TRUE);
+			Status = STATUS_PENDING;
+		}
+
+	} else {
+		Status = STATUS_PENDING;
+	}
+
+	//_DbgPrintF(DEBUGLVL_VERBOSE, ("Leaving Process..."));
+	TraceVerbose(DBG_CAPTURE, "Leaving Process... status %x\n", Status);
+	return Status;
+
+}
 /*************************************************/
 
 

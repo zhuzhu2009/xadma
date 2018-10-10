@@ -61,6 +61,7 @@ WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll = 1 ; make sure the number matches wi
 %ADMA.DRVDESC%=			ADMA_Inst,		PCI\VEN_1172&DEV_e001
 %ADMA.DRVDESC%=			ADMA_Inst,		PCI\VEN_1172&DEV_e002
 %ADMA.DRVDESC%=			ADMA_Inst,		PCI\VEN_1172&DEV_e003
+%ADMA.DRVDESC%=			ADMA_Inst,		PCI\VEN_1172&DEV_0004
 
 [ADMA_Inst.NT]
 CopyFiles      = ADMA.CopyFiles

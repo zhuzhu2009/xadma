@@ -90,6 +90,27 @@ private:
 	ULONG m_VideoBarLen;
 	//PADMA_SGDMA_REGS m_AdmaRdSgdmaReg;
 	//PADMA_SGDMA_REGS m_AdmaWrSgdmaReg;
+#if defined(ALTERA_ARRIA10)
+	// a10 pcie dma
+	PADMA_SGDMA_REGS m_AdmaRdSgdmaReg;
+	PADMA_SGDMA_REGS m_AdmaWrSgdmaReg;
+	PADMA_DESCRIPTOR m_AdmaRdDescriptor;
+	PADMA_DESCRIPTOR m_AdmaWrDescriptor;
+	PADMA_RESULT m_AdmaRdResult;
+	PADMA_RESULT m_AdmaWrResult;
+	PFRAME_BUFFER_REGS m_FrameBufferReg[FRAME_BUFFER_NUM];
+#elif defined(ALTERA_CYCLONE4)
+	// c4 sgdma dispatcher
+	PSGDMA_STANDARD_DESCRIPTOR m_SgdmaStandardDescriptor;
+	PSGDMA_EXTEND_DESCRIPTOR m_SgdmaExtendDescriptor;
+	PSGDMA_RESPONSE m_SgdmaResponse;
+	PSGDMA_CSR m_SgdmaCsr;
+	PFRAME_BUFFER_REGS m_FrameBufferReg;
+	PCLOCK_VIDEO_REGS m_ClockVideoReg;
+
+#else
+#error "Please define FPGA type"
+#endif
 
 	ULONG m_NumberOfIntrs = 0;
 	UCHAR m_InterruptLevel;
@@ -112,12 +133,17 @@ private:
 	NPAGED_LOOKASIDE_LIST   m_SGListLookasideList;
 	PALLOCATE_COMMON_BUFFER AllocateCommonBuffer;
 	PFREE_COMMON_BUFFER     FreeCommonBuffer;
+	//a10 packet-dma
 	PVOID                   m_RdDescBufferVa;
 	ULONG                   m_RdDescBufferSize;
 	PHYSICAL_ADDRESS        m_RdDescBufferPa;
 	PVOID                   m_WrDescBufferVa;
 	ULONG                   m_WrDescBufferSize;
 	PHYSICAL_ADDRESS        m_WrDescBufferPa;
+	//c4 common buffer dma
+	PVOID                   m_VideoBufferVa;
+	ULONG                   m_VideoBufferSize;
+	PHYSICAL_ADDRESS        m_VideoBufferPa;
 
     //
     // Cleanup():
@@ -345,6 +371,19 @@ public:
         IN PKSMAPPING Mappings,
         IN ULONG MappingsCount
         );
+
+	//
+	// CopyVideoCommonBuffer():
+	//
+	// Called to program the hardware simulation's scatter / gather table.
+	// This synchronizes with the "fake" ISR and hardware simulation via
+	// a spinlock.
+	//
+	ULONG
+	CopyVideoCommonBuffer(
+			IN PUCHAR *Buffer,
+			IN PULONG Length
+		);
 
     //
     // QueryInterruptTime():

@@ -79,13 +79,87 @@ typedef struct {//start from RC Read Descriptor Base or RC Write Descriptor Base
 #pragma pack()
 
 #elif defined(ALTERA_CYCLONE4)
-#define HW_MAX_DESCRIPTOR_NUM				(1024UL)
+#define HW_MAX_DESCRIPTOR_NUM				(128UL)
 #define HW_MAX_TRANSFER_SIZE  (HW_MAX_DESCRIPTOR_NUM * PAGE_SIZE)
 
 // c4 sgdma dispatcher
-#define SGDMA_DESCRIPTOR_REG_OFFSET			(0x4000)
-#define SGDMA_CSR_REG_OFFSET				(0x40C0)
-#define FRAME_BUFFER_REG_ADDR				(0x5000)
+#define SGDMA_DESCRIPTOR_REG_OFFSET			(0x4080)
+#define SGDMA_CSR_REG_OFFSET				(0x40a0)
+#define SGDMA_RESPONSE_REG_OFFSET			(0x40c0)
+#define FRAME_BUFFER_REG_ADDR				(0x4040)
+#define CLOCK_VIDEO_REG_ADDR				(0x4000)
+
+// masks and offsets for the read and write strides
+#define DESCRIPTOR_READ_STRIDE_MASK                      (0xFFFF)
+#define DESCRIPTOR_READ_STRIDE_OFFSET                    (0)
+#define DESCRIPTOR_WRITE_STRIDE_MASK                     (0xFFFF0000)
+#define DESCRIPTOR_WRITE_STRIDE_OFFSET                   (16)
+
+// masks and offsets for the bits in the descriptor control field
+#define DESCRIPTOR_CONTROL_TRANSMIT_CHANNEL_MASK         (0xFF)
+#define DESCRIPTOR_CONTROL_TRANSMIT_CHANNEL_OFFSET       (0)
+#define DESCRIPTOR_CONTROL_GENERATE_SOP_MASK             (1UL<<8)
+#define DESCRIPTOR_CONTROL_GENERATE_SOP_OFFSET           (8)
+#define DESCRIPTOR_CONTROL_GENERATE_EOP_MASK             (1UL<<9)
+#define DESCRIPTOR_CONTROL_GENERATE_EOP_OFFSET           (9)
+#define DESCRIPTOR_CONTROL_PARK_READS_MASK               (1UL<<10)
+#define DESCRIPTOR_CONTROL_PARK_READS_OFFSET             (10)
+#define DESCRIPTOR_CONTROL_PARK_WRITES_MASK              (1UL<<11)
+#define DESCRIPTOR_CONTROL_PARK_WRITES_OFFSET            (11)
+#define DESCRIPTOR_CONTROL_END_ON_EOP_MASK               (1UL<<12)
+#define DESCRIPTOR_CONTROL_END_ON_EOP_OFFSET             (12)
+#define DESCRIPTOR_CONTROL_END_ON_EOP_LEN_MASK           (1UL<<13)
+#define DESCRIPTOR_CONTROL_END_ON_EOP_LEN_OFFSET         (13)
+#define DESCRIPTOR_CONTROL_TRANSFER_COMPLETE_IRQ_MASK    (1UL<<14)
+#define DESCRIPTOR_CONTROL_TRANSFER_COMPLETE_IRQ_OFFSET  (14)
+#define DESCRIPTOR_CONTROL_EARLY_TERMINATION_IRQ_MASK    (1UL<<15)
+#define DESCRIPTOR_CONTROL_EARLY_TERMINATION_IRQ_OFFSET  (15)
+#define DESCRIPTOR_CONTROL_ERROR_IRQ_MASK                (0xFF<<16)  // the read master will use this as the transmit error, the dispatcher will use this to generate an interrupt if any of the error bits are asserted by the write master
+#define DESCRIPTOR_CONTROL_ERROR_IRQ_OFFSET              (16)
+#define DESCRIPTOR_CONTROL_EARLY_DONE_ENABLE_MASK        (1UL<<24)
+#define DESCRIPTOR_CONTROL_EARLY_DONE_ENABLE_OFFSET      (24)
+#define DESCRIPTOR_CONTROL_GO_MASK                       (1UL<<31)  // at a minimum you always have to write '1' to this bit as it commits the descriptor to the dispatcher
+#define DESCRIPTOR_CONTROL_GO_OFFSET                     (31)
+
+// masks for the status register bits
+#define CSR_BUSY_MASK                           (1)
+#define CSR_BUSY_OFFSET                         (0)
+#define CSR_DESCRIPTOR_BUFFER_EMPTY_MASK        (1<<1)
+#define CSR_DESCRIPTOR_BUFFER_EMPTY_OFFSET      (1)
+#define CSR_DESCRIPTOR_BUFFER_FULL_MASK         (1<<2)
+#define CSR_DESCRIPTOR_BUFFER_FULL_OFFSET       (2)
+#define CSR_RESPONSE_BUFFER_EMPTY_MASK          (1<<3)
+#define CSR_RESPONSE_BUFFER_EMPTY_OFFSET        (3)
+#define CSR_RESPONSE_BUFFER_FULL_MASK           (1<<4)
+#define CSR_RESPONSE_BUFFER_FULL_OFFSET         (4)
+#define CSR_STOP_STATE_MASK                     (1<<5)
+#define CSR_STOP_STATE_OFFSET                   (5)
+#define CSR_RESET_STATE_MASK                    (1<<6)
+#define CSR_RESET_STATE_OFFSET                  (6)
+#define CSR_STOPPED_ON_ERROR_MASK               (1<<7)
+#define CSR_STOPPED_ON_ERROR_OFFSET             (7)
+#define CSR_STOPPED_ON_EARLY_TERMINATION_MASK   (1<<8)
+#define CSR_STOPPED_ON_EARLY_TERMINATION_OFFSET (8)
+#define CSR_IRQ_SET_MASK                        (1<<9)
+#define CSR_IRQ_SET_OFFSET                      (9)
+
+// masks for the control register bits
+#define CSR_STOP_MASK                           (1)
+#define CSR_STOP_OFFSET                         (0)
+#define CSR_RESET_MASK                          (1<<1)
+#define CSR_RESET_OFFSET                        (1)
+#define CSR_STOP_ON_ERROR_MASK                  (1<<2)
+#define CSR_STOP_ON_ERROR_OFFSET                (2)
+#define CSR_STOP_ON_EARLY_TERMINATION_MASK      (1<<3)
+#define CSR_STOP_ON_EARLY_TERMINATION_OFFSET    (3)
+#define CSR_GLOBAL_INTERRUPT_MASK               (1<<4)
+#define CSR_GLOBAL_INTERRUPT_OFFSET             (4)
+#define CSR_STOP_DESCRIPTORS_MASK               (1<<5)
+#define CSR_STOP_DESCRIPTORS_OFFSET             (5)
+
+#define CONTROL_GO_MASK			(1)
+
+#define CLOCK_VIDEO_STATUS_OVERFLOW_MASK		(1<<9)
 
 /*
 Descriptor formats:
@@ -133,7 +207,8 @@ typedef struct {
 	UINT32 transferLength;
 	UINT32 snAndRwBurst;
 	UINT32 rwStride;
-	UINT32 reserved[2];  // in a later version this will be optionally used, for now it's ignored by the hardware
+	UINT32 readAddressHi;
+	UINT32 writeAddressHi;
 	UINT32 control;
 } SGDMA_EXTEND_DESCRIPTOR, *PSGDMA_EXTEND_DESCRIPTOR;
 
@@ -220,6 +295,24 @@ typedef struct {
 	UINT32 inputFrameRate;
 	UINT32 outputFrameRate;
 } FRAME_BUFFER_REGS, *PFRAME_BUFFER_REGS;
+
+/// Altera Clock Video Input IP Registers
+typedef struct {
+	UINT32 control;//0x00
+	UINT32 status;
+	UINT32 interrupt;
+	UINT32 userWord;
+	UINT32 activeSampleCnt;
+	UINT32 f0ActiveLineCnt;
+	UINT32 f1ActiveLineCnt;
+	UINT32 totalSampleCnt;//0xFC
+	UINT32 f0TotalLineCnt;
+	UINT32 f1TotalLineCnt;
+	UINT32 standard;
+	UINT32 reserved;
+	UINT32 colorPattern;
+	UINT32 ancillaryPacket;
+} CLOCK_VIDEO_REGS, *PCLOCK_VIDEO_REGS;
 
 #pragma pack()
 #else
@@ -379,6 +472,7 @@ public:
 	PSGDMA_RESPONSE m_SgdmaResponse;
 	PSGDMA_CSR m_SgdmaCsr;
 	PFRAME_BUFFER_REGS m_FrameBufferReg;
+	PCLOCK_VIDEO_REGS m_ClockVideoReg;
 #else
 #error "Please define FPGA type"
 #endif

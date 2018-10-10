@@ -125,6 +125,7 @@ static NTSTATUS SetupDeviceInterrupt(IN PADMA_DEVICE adma, IN PCM_PARTIAL_RESOUR
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "WdfInterruptCreate failed: %!STATUS!", status);
     }
+
     PIRQ_CONTEXT irqContext = GetIrqContext(adma->lineInterrupt);
     irqContext->adma = adma;
     irqContext->regs = adma->interruptRegs;
@@ -173,14 +174,14 @@ static NTSTATUS SetupSingleInterrupt(IN PADMA_DEVICE adma, IN WDFCMRESLIST Resou
     }
 
     TraceVerbose(DBG_INIT, "User/Channel interrupt vector value = %u", vectorValue);
-
+#if 0
     adma->interruptRegs->userVector[0] = vectorValue;
     adma->interruptRegs->userVector[1] = vectorValue;
     adma->interruptRegs->userVector[2] = vectorValue;
     adma->interruptRegs->userVector[3] = vectorValue;
     adma->interruptRegs->channelVector[0] = vectorValue;
     adma->interruptRegs->channelVector[1] = vectorValue;
-
+#endif
     return status;
 }
 
@@ -217,7 +218,7 @@ static NTSTATUS SetupMsixInterrupts(IN PADMA_DEVICE adma, IN WDFCMRESLIST Resour
 
         ++interruptCount;
     }
-
+#if 0
     // first 16 msg IDs are user irq
     adma->interruptRegs->userVector[0] = BuildVectorReg(0, 1, 2, 3);
     adma->interruptRegs->userVector[1] = BuildVectorReg(4, 5, 6, 7);
@@ -227,7 +228,7 @@ static NTSTATUS SetupMsixInterrupts(IN PADMA_DEVICE adma, IN WDFCMRESLIST Resour
     // next 8 are dma channel
     adma->interruptRegs->channelVector[0] = BuildVectorReg(16, 17, 18, 19);
     adma->interruptRegs->channelVector[1] = BuildVectorReg(20, 21, 22, 23);
-
+#endif
     return status;
 }
 
@@ -311,23 +312,49 @@ static NTSTATUS CountInterruptResources(IN WDFCMRESLIST ResourcesTranslated,
 // ====================== line/msi interrupt callback functions ===================================
 
 NTSTATUS EvtInterruptEnable(IN WDFINTERRUPT Interrupt, IN WDFDEVICE device) {
+	UNREFERENCED_PARAMETER(Interrupt);
     UNREFERENCED_PARAMETER(device);
+#if 0
     IRQ_CONTEXT* irq = GetIrqContext(Interrupt);
     EXPECT(irq != NULL);
     EXPECT(irq->regs != NULL);
     irq->regs->channelIntEnableW1S = 0xFFFFFFFFUL;
     irq->regs->userIntEnableW1S = 0xFFFFFFFFUL;
+#endif
+
+	IRQ_CONTEXT* irq = GetIrqContext(Interrupt);
+	irq->regs->enable = 0xFFFF;
+
+	for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
+		for (ULONG ch = 0; ch < ADMA_MAX_NUM_CHANNELS; ch++) {
+			ADMA_ENGINE* engine = &(irq->adma->engines[ch][dir]);
+			EngineEnableInterrupt(engine);
+		}
+	}
+
     TraceVerbose(DBG_IRQ, "enabled ALL interrupts");
     return STATUS_SUCCESS;
 }
 
 NTSTATUS EvtInterruptDisable(IN WDFINTERRUPT Interrupt, IN WDFDEVICE device) {
-    UNREFERENCED_PARAMETER(device);
-    IRQ_CONTEXT* irq = GetIrqContext(Interrupt);
+	UNREFERENCED_PARAMETER(Interrupt);
+	UNREFERENCED_PARAMETER(device);
+#if 0
+	IRQ_CONTEXT* irq = GetIrqContext(Interrupt);
     EXPECT(irq != NULL);
     EXPECT(irq->regs != NULL);
     irq->regs->channelIntEnableW1C = 0xFFFFFFFFUL;
     irq->regs->userIntEnableW1C = 0xFFFFFFFFUL;
+#endif
+	IRQ_CONTEXT* irq = GetIrqContext(Interrupt);
+	irq->regs->enable = 0;
+	for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
+		for (ULONG ch = 0; ch < ADMA_MAX_NUM_CHANNELS; ch++) {
+			ADMA_ENGINE* engine = &(irq->adma->engines[ch][dir]);
+			EngineDisableInterrupt(engine);
+		}
+	}
+
     TraceVerbose(DBG_IRQ, "disabled ALL interrupts");
     return STATUS_SUCCESS;
 }
@@ -335,15 +362,23 @@ NTSTATUS EvtInterruptDisable(IN WDFINTERRUPT Interrupt, IN WDFDEVICE device) {
 BOOLEAN EvtInterruptIsr(IN WDFINTERRUPT Interrupt, IN ULONG MessageID)
 // interrupt service routine - handle line interrupts
 {
+
+	UNREFERENCED_PARAMETER(Interrupt);
     PIRQ_CONTEXT irq = GetIrqContext(Interrupt);
-    UINT32 chIrq = 0;
+#if 0
+
+	UINT32 chIrq = 0;
     UINT32 userIrq = 0;
+#endif
 
     TraceInfo(DBG_IRQ, "irq messageId = %u", MessageID);
 
     EXPECT(irq != NULL);
     EXPECT(irq->regs != NULL);
 
+	irq->regs->status = 0;
+
+#if 0
     // read channel interrupt request registers
     // channel interrupt(s) requested?
     chIrq = irq->regs->channelIntRequest;
@@ -369,7 +404,7 @@ BOOLEAN EvtInterruptIsr(IN WDFINTERRUPT Interrupt, IN ULONG MessageID)
         TraceWarning(DBG_IRQ, "Spurious interrupt");
         return FALSE;
     }
-
+#endif
     // schedule deferred work
     WdfInterruptQueueDpcForIsr(Interrupt);
     return TRUE;
@@ -383,6 +418,7 @@ VOID EvtInterruptDpc(IN WDFINTERRUPT interrupt, IN WDFOBJECT device)
 
     // dma engine interrupt pending?
     TraceVerbose(DBG_IRQ, "channelIrqPending=0x%08X", irq->channelIrqPending);
+#if 0
     for (UINT dir = H2C; dir < 2; dir++) { // 0=H2C, 1=C2H
         for (UINT channel = 0; channel < ADMA_MAX_NUM_CHANNELS; channel++) {
             ADMA_ENGINE* engine = &irq->adma->engines[channel][dir];
@@ -418,10 +454,11 @@ VOID EvtInterruptDpc(IN WDFINTERRUPT interrupt, IN WDFOBJECT device)
     irq->regs->userIntEnableW1S = irq->userIrqPending;
     irq->userIrqPending = 0x0;
     WdfInterruptReleaseLock(interrupt);
-    TraceVerbose(DBG_IRQ, "channel EN=0x%08X RQ=0x%08X PE=0x%08X",
-                 irq->regs->channelIntEnable, irq->regs->channelIntRequest, irq->regs->channelIntPending);
-    TraceVerbose(DBG_IRQ, "user EN=0x%08X RQ=0x%08X PE=0x%08X",
-                 irq->regs->userIntEnable, irq->regs->userIntRequest, irq->regs->userIntPending);
+#endif
+
+
+    TraceVerbose(DBG_IRQ, "channel EN=0x%08X RQ=0x%08X",
+                 irq->regs->enable, irq->regs->status);
     return;
 }
 
@@ -557,6 +594,7 @@ NTSTATUS SetupInterrupts(IN PADMA_DEVICE adma,
     NTSTATUS status = STATUS_SUCCESS;
     ULONG numIrqResources = 0;
     USHORT numMsiVectors = 0; // only for multi-message MSI, not MSI-X!
+	UNREFERENCED_PARAMETER(ResourcesRaw);
 
     status = CountInterruptResources(ResourcesTranslated, &numIrqResources);
     if (!NT_SUCCESS(status)) {
@@ -566,8 +604,8 @@ NTSTATUS SetupInterrupts(IN PADMA_DEVICE adma,
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "GetNumMsiVectors failed: %!STATUS!", status);
     }
-
     TraceVerbose(DBG_INIT, "adma->numIrqResources=%u numMsiVectors=%u", numIrqResources, numMsiVectors);
+
     if (numIrqResources >= ADMA_MAX_NUM_IRQ) { // msi-x
         status = SetupMsixInterrupts(adma, ResourcesRaw, ResourcesTranslated);
     } else if (numMsiVectors >= ADMA_MAX_NUM_IRQ) { //multi-message MSI with enough contiguous vectors
@@ -578,6 +616,7 @@ NTSTATUS SetupInterrupts(IN PADMA_DEVICE adma,
     if (!NT_SUCCESS(status)) {
         TraceError(DBG_INIT, "Setting up interrupts failed: %!STATUS!", status);
     }
+
     return status;
 }
 

@@ -209,12 +209,16 @@ VOID EvtDeviceCleanup(IN WDFOBJECT device) {
 NTSTATUS EvtDevicePrepareHardware(IN WDFDEVICE device, IN WDFCMRESLIST Resources,
                                   IN WDFCMRESLIST ResourcesTranslated) {
     PAGED_CODE();
-    UNREFERENCED_PARAMETER(Resources);
+	//UNREFERENCED_PARAMETER(device);
+    //UNREFERENCED_PARAMETER(Resources);
+	//UNREFERENCED_PARAMETER(ResourcesTranslated);
+	NTSTATUS status = STATUS_SUCCESS;
     TraceVerbose(DBG_INIT, "-->Entry");
 
     DeviceContext* ctx = GetDeviceContext(device);
 	PADMA_DEVICE adma = &(ctx->adma);
-	NTSTATUS status = ADMA_DeviceOpen(device, adma, Resources, ResourcesTranslated);
+
+	status = ADMA_DeviceOpen(device, adma, Resources, ResourcesTranslated);
 	if (!NT_SUCCESS(status)) {
 		TraceError(DBG_INIT, "ADMA_DeviceOpen failed: %!STATUS!", status);
 		return status;

@@ -44,6 +44,9 @@
 #define SGDMA_COMMON_BLOCK_OFFSET (6 * BLOCK_OFFSET)
 #define ENGINE_OFFSET       (0x100UL)//for adma current no effect//(0x100UL)
 
+
+#define A2P_TRANS_TBL_OFFSET				(0x1000)
+#define ADMA_IRQ_REGS_OFFSET				(0x40)
 //bits of the SGDMA engine control register
 #define ADMA_CTRL_RUN_BIT                   (BIT_N(0))
 #define ADMA_CTRL_IE_DESC_STOPPED           (BIT_N(1))
@@ -96,6 +99,81 @@
 #define ADMA_RD_DTS_ADDR					(0x80000000UL)//add by zc
 #define ADMA_WR_DTS_ADDR					(0x80002000UL)//add by zc
 
+//Cyclone IV
+#define MODULAR_SGDMA_DESCRIPTOR_REG_OFFSET			(0x6000020)
+#define MODULAR_SGDMA_CSR_REG_OFFSET				(0x6000000)
+#define MODULAR_SGDMA_RESPONSE_REG_OFFSET			(0x40c0)
+#define FRAME_BUFFER_REG_ADDR						(0x4040)
+#define CLOCK_VIDEO_REG_ADDR						(0x4000)
+
+// masks and offsets for the read and write strides
+#define DESCRIPTOR_READ_STRIDE_MASK                      (0xFFFF)
+#define DESCRIPTOR_READ_STRIDE_OFFSET                    (0)
+#define DESCRIPTOR_WRITE_STRIDE_MASK                     (0xFFFF0000)
+#define DESCRIPTOR_WRITE_STRIDE_OFFSET                   (16)
+
+// masks and offsets for the bits in the descriptor control field
+#define DESCRIPTOR_CONTROL_TRANSMIT_CHANNEL_MASK         (0xFF)
+#define DESCRIPTOR_CONTROL_TRANSMIT_CHANNEL_OFFSET       (0)
+#define DESCRIPTOR_CONTROL_GENERATE_SOP_MASK             (1UL<<8)
+#define DESCRIPTOR_CONTROL_GENERATE_SOP_OFFSET           (8)
+#define DESCRIPTOR_CONTROL_GENERATE_EOP_MASK             (1UL<<9)
+#define DESCRIPTOR_CONTROL_GENERATE_EOP_OFFSET           (9)
+#define DESCRIPTOR_CONTROL_PARK_READS_MASK               (1UL<<10)
+#define DESCRIPTOR_CONTROL_PARK_READS_OFFSET             (10)
+#define DESCRIPTOR_CONTROL_PARK_WRITES_MASK              (1UL<<11)
+#define DESCRIPTOR_CONTROL_PARK_WRITES_OFFSET            (11)
+#define DESCRIPTOR_CONTROL_END_ON_EOP_MASK               (1UL<<12)
+#define DESCRIPTOR_CONTROL_END_ON_EOP_OFFSET             (12)
+#define DESCRIPTOR_CONTROL_END_ON_EOP_LEN_MASK           (1UL<<13)
+#define DESCRIPTOR_CONTROL_END_ON_EOP_LEN_OFFSET         (13)
+#define DESCRIPTOR_CONTROL_TRANSFER_COMPLETE_IRQ_MASK    (1UL<<14)
+#define DESCRIPTOR_CONTROL_TRANSFER_COMPLETE_IRQ_OFFSET  (14)
+#define DESCRIPTOR_CONTROL_EARLY_TERMINATION_IRQ_MASK    (1UL<<15)
+#define DESCRIPTOR_CONTROL_EARLY_TERMINATION_IRQ_OFFSET  (15)
+#define DESCRIPTOR_CONTROL_ERROR_IRQ_MASK                (0xFF<<16)  // the read master will use this as the transmit error, the dispatcher will use this to generate an interrupt if any of the error bits are asserted by the write master
+#define DESCRIPTOR_CONTROL_ERROR_IRQ_OFFSET              (16)
+#define DESCRIPTOR_CONTROL_EARLY_DONE_ENABLE_MASK        (1UL<<24)
+#define DESCRIPTOR_CONTROL_EARLY_DONE_ENABLE_OFFSET      (24)
+#define DESCRIPTOR_CONTROL_GO_MASK                       (1UL<<31)  // at a minimum you always have to write '1' to this bit as it commits the descriptor to the dispatcher
+#define DESCRIPTOR_CONTROL_GO_OFFSET                     (31)
+
+// masks for the status register bits
+#define CSR_BUSY_MASK                           (1)
+#define CSR_BUSY_OFFSET                         (0)
+#define CSR_DESCRIPTOR_BUFFER_EMPTY_MASK        (1<<1)
+#define CSR_DESCRIPTOR_BUFFER_EMPTY_OFFSET      (1)
+#define CSR_DESCRIPTOR_BUFFER_FULL_MASK         (1<<2)
+#define CSR_DESCRIPTOR_BUFFER_FULL_OFFSET       (2)
+#define CSR_RESPONSE_BUFFER_EMPTY_MASK          (1<<3)
+#define CSR_RESPONSE_BUFFER_EMPTY_OFFSET        (3)
+#define CSR_RESPONSE_BUFFER_FULL_MASK           (1<<4)
+#define CSR_RESPONSE_BUFFER_FULL_OFFSET         (4)
+#define CSR_STOP_STATE_MASK                     (1<<5)
+#define CSR_STOP_STATE_OFFSET                   (5)
+#define CSR_RESET_STATE_MASK                    (1<<6)
+#define CSR_RESET_STATE_OFFSET                  (6)
+#define CSR_STOPPED_ON_ERROR_MASK               (1<<7)
+#define CSR_STOPPED_ON_ERROR_OFFSET             (7)
+#define CSR_STOPPED_ON_EARLY_TERMINATION_MASK   (1<<8)
+#define CSR_STOPPED_ON_EARLY_TERMINATION_OFFSET (8)
+#define CSR_IRQ_SET_MASK                        (1<<9)
+#define CSR_IRQ_SET_OFFSET                      (9)
+
+// masks for the control register bits
+#define CSR_STOP_MASK                           (1)
+#define CSR_STOP_OFFSET                         (0)
+#define CSR_RESET_MASK                          (1<<1)
+#define CSR_RESET_OFFSET                        (1)
+#define CSR_STOP_ON_ERROR_MASK                  (1<<2)
+#define CSR_STOP_ON_ERROR_OFFSET                (2)
+#define CSR_STOP_ON_EARLY_TERMINATION_MASK      (1<<3)
+#define CSR_STOP_ON_EARLY_TERMINATION_OFFSET    (3)
+#define CSR_GLOBAL_INTERRUPT_MASK               (1<<4)
+#define CSR_GLOBAL_INTERRUPT_OFFSET             (4)
+#define CSR_STOP_DESCRIPTORS_MASK               (1<<5)
+#define CSR_STOP_DESCRIPTORS_OFFSET             (5)
+
 #pragma pack(1)
 
 /// H2C/C2H Channel Registers (H2C: 0x0, C2H: 0x1000)
@@ -137,25 +215,10 @@ typedef struct {
 
 /// IRQ Block Registers (0x2000)
 typedef struct {
-    UINT32 identifier;
-    UINT32 userIntEnable;
-    UINT32 userIntEnableW1S;
-    UINT32 userIntEnableW1C;
-    UINT32 channelIntEnable;
-    UINT32 channelIntEnableW1S;
-    UINT32 channelIntEnableW1C;
-    UINT32 reserved_1[9];
-
-    UINT32 userIntRequest;
-    UINT32 channelIntRequest;
-    UINT32 userIntPending;
-    UINT32 channelIntPending;
-    UINT32 reserved_2[12];
-
-    UINT32 userVector[4];
-    UINT32 reserved_3[4];
-    UINT32 channelVector[2];
-
+	UINT32 status;
+	UINT32 reserved_1[3];
+	UINT32 enable;
+	UINT32 reserved_2[3];
 } ADMA_IRQ_REGS;
 
 /// Config Block Registers (0x3000)
@@ -211,6 +274,102 @@ typedef struct {
     UINT32 creditModeEnableW1S; // 0x24
     UINT32 creditModeEnableW1C; // 0x28
 } ADMA_SGDMA_COMMON_REGS, *PADMA_SGDMA_COMMON_REGS;
+
+typedef struct {
+	UINT32 a2pAddrLo0;
+	UINT32 a2pAddrHi0;
+	UINT32 a2pAddrLo1;
+	UINT32 a2pAddrHi1;
+} ADMA_A2P_TRANS_TBL, *PADMA_A2P_TRANS_TBL;
+
+// c4 sgdma dispatcher, for c4, descriptor is located on ep memory not in host memory
+// use this structure if you haven't enabled the enhanced features
+typedef struct {
+	UINT32 readAddress;
+	UINT32 writeAddress;
+	UINT32 transferLength;
+	UINT32 control;
+} ADMA_MODULAR_SGDMA_STANDARD_DESCRIPTOR, *PADMA_MODULAR_SGDMA_STANDARD_DESCRIPTOR;
+
+// use ths structure if you have enabled the enhanced features (only the elements enabled in hardware will be used)
+typedef struct {
+	UINT32 readAddress;
+	UINT32 writeAddress;
+	UINT32 transferLength;
+	UINT32 snAndRwBurst;
+	UINT32 rwStride;
+	UINT32 readAddressHi;
+	UINT32 writeAddressHi;
+	UINT32 control;
+} ADMA_MODULAR_SGDMA_EXTEND_DESCRIPTOR, *PADMA_MODULAR_SGDMA_EXTEND_DESCRIPTOR;
+
+// this struct should only be used if response information is enabled
+typedef struct {
+	UINT32 actualBytesTransferred;
+	UINT32 status;
+} ADMA_MODULAR_SGDMA_RESPONSE, *PADMA_MODULAR_SGDMA_RESPONSE;
+/*
+Enhanced features off:
+
+Bytes     Access Type     Description
+-----     -----------     -----------
+0-3       R/Clr           Status(1)
+4-7       R/W             Control(2)
+8-12      R               Descriptor Fill Level(write fill level[15:0], read fill level[15:0])
+13-15     R               Response Fill Level[15:0]
+16-31     N/A             <Reserved>
+
+
+Enhanced features on:
+
+Bytes     Access Type     Description
+-----     -----------     -----------
+0-3       R/Clr           Status(1)
+4-7       R/W             Control(2)
+8-12      R               Descriptor Fill Level (write fill level[15:0], read fill level[15:0])
+13-15     R               Response Fill Level[15:0]
+16-20     R               Sequence Number (write sequence number[15:0], read sequence number[15:0])
+21-31     N/A             <Reserved>
+
+(1)  Writing a '1' to the interrupt bit of the status register clears the interrupt bit (when applicable), all other bits are unaffected by writes
+(2)  Writing to the software reset bit will clear the entire register (as well as all the registers for the entire SGDMA)
+
+Status Register:
+
+Bits      Description
+----      -----------
+0         Busy
+1         Descriptor Buffer Empty
+2         Descriptor Buffer Full
+3         Response Buffer Empty
+4         Response Buffer Full
+5         Stop State
+6         Reset State
+7         Stopped on Error
+8         Stopped on Early Termination
+9         IRQ
+10-31     <Reserved>
+
+Control Register:
+
+Bits      Description
+----      -----------
+0         Stop (will also be set if a stop on error/early termination condition occurs)
+1         Software Reset
+2         Stop on Error
+3         Stop on Early Termination
+4         Global Interrupt Enable Mask
+5         Stop dispatcher (stops the dispatcher from issuing more read/write commands)
+6-31      <Reserved>
+*/
+// use this structure if you haven't enabled the enhanced features
+typedef struct {
+	UINT32 status;
+	UINT32 control;
+	UINT32 rwFillLevel;
+	UINT32 squenceNum;
+	UINT32 reserved[3];
+} ADMA_MODULAR_SGDMA_CSR, *PADMA_MODULAR_SGDMA_CSR;
 
 #pragma pack()
 

@@ -46,20 +46,20 @@ avsadma.sys
 %ManufacturerName%=Standard,NTx86,NTamd64,ntarm,ntarm64
 
 [Standard.NTx86]
-%avsadma.DeviceDesc%=avsadma.NTx86,PCI\VEN_1172&DEV_e003
-%avsadma.DeviceDesc%=avsadma.NTx86,PCI\VEN_1172&DEV_e004
+;%avsadma.DeviceDesc%=avsadma.NTx86,PCI\VEN_1172&DEV_e003
+%avsadma.DeviceDesc%=avsadma.NTx86,PCI\VEN_1172&DEV_0004
 
 [Standard.NTamd64]
-%avsadma.DeviceDesc%=avsadma.NTamd64,PCI\VEN_1172&DEV_e003
-%avsadma.DeviceDesc%=avsadma.NTamd64,PCI\VEN_1172&DEV_e004
+;%avsadma.DeviceDesc%=avsadma.NTamd64,PCI\VEN_1172&DEV_e003
+%avsadma.DeviceDesc%=avsadma.NTamd64,PCI\VEN_1172&DEV_0004
 
 [Standard.NTarm]
-%avsadma.DeviceDesc%=avsadma.NTarm,PCI\VEN_1172&DEV_e003
-%avsadma.DeviceDesc%=avsadma.NTarm,PCI\VEN_1172&DEV_e004
+;%avsadma.DeviceDesc%=avsadma.NTarm,PCI\VEN_1172&DEV_e003
+%avsadma.DeviceDesc%=avsadma.NTarm,PCI\VEN_1172&DEV_0004
 
 [Standard.NTarm64]
-%avsadma.DeviceDesc%=avsadma.NTarm64,PCI\VEN_1172&DEV_e003
-%avsadma.DeviceDesc%=avsadma.NTarm64,PCI\VEN_1172&DEV_e004
+;%avsadma.DeviceDesc%=avsadma.NTarm64,PCI\VEN_1172&DEV_e003
+%avsadma.DeviceDesc%=avsadma.NTarm64,PCI\VEN_1172&DEV_0004
 
 ;---------------------------------------------------------------
 ;                x 86  D D I n s t a l l

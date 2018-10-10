@@ -56,6 +56,9 @@ typedef struct ADMA_DEVICE_T {
     volatile ADMA_IRQ_REGS *interruptRegs;
     volatile ADMA_SGDMA_COMMON_REGS * sgdmaRegs;
 
+	volatile ADMA_A2P_TRANS_TBL *a2pTransTbl;
+	UINT32 a2pMask;
+
     // DMA Engine management
     ADMA_ENGINE engines[ADMA_MAX_NUM_CHANNELS][ADMA_NUM_DIRECTIONS];
     WDFDMAENABLER dmaEnabler;   // WDF DMA Enabler for the engine queues
